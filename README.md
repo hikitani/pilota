@@ -67,6 +67,24 @@ the requested Python result type. The selected model must support the features u
 See the [OpenRouter provider guide](docs/openrouter.md) for configuration, typed results, tool
 calling, failure behavior, and executable examples.
 
+## Shell tool
+
+`Shell` exposes only caller-configured command aliases, runs argv without shell
+interpretation, requires workspace `execute` permission, uses a sanitized environment, and
+returns bounded stdout and stderr:
+
+```python
+import sys
+
+from pilota import DirectoryWorkspace, Shell
+
+workspace = DirectoryWorkspace(".", allow={"read", "execute"})
+shell = Shell({"tests": [sys.executable, "-m", "pytest"]})
+```
+
+The local process is not a filesystem or network sandbox. See the
+[Shell tool guide](docs/shell.md) for its authority model and safe usage.
+
 ## Development
 
 ```bash

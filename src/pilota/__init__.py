@@ -15,7 +15,7 @@ from pilota.models import (
 )
 from pilota.providers import Model, ScriptedModel
 from pilota.resources import DirectoryResource, Resource, ResourceOperation
-from pilota.tools import Editor
+from pilota.tools import Editor, Shell
 from pilota.workspaces import DirectoryWorkspace, InMemoryWorkspace
 
 __version__ = "0.1.0"
@@ -34,6 +34,7 @@ __all__ = [
     "Resource",
     "ResourceOperation",
     "ScriptedModel",
+    "Shell",
     "ToolCall",
     "Trace",
     "TraceEvent",
