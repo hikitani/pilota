@@ -26,3 +26,6 @@ class ScriptedModel:
         if not self._actions:
             raise ProviderError("ScriptedModel has no actions remaining")
         return self._actions.popleft()
+
+
+__all__ = ["Model", "ScriptedModel"]

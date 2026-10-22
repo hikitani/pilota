@@ -51,6 +51,7 @@ def run_agent(
     selected_limits = limits or Limits()
     selected_tools = (*tuple(tools or ()), *resource_tools(resources or {}))
     tool_registry = _build_tool_registry(selected_tools)
+    tool_call_history: list[ToolCall] = []
     observations: list[Observation] = []
     model_calls = 0
     tool_calls = 0
@@ -66,6 +67,7 @@ def run_agent(
             instructions=tuple(instructions or ()),
             tools=tuple(tool.spec for tool in selected_tools),
             result_schema=codec.schema(),
+            tool_calls=tuple(tool_call_history),
             observations=tuple(observations),
         )
         recorder.record("model.requested", {"call": model_calls + 1})
@@ -92,6 +94,8 @@ def run_agent(
                 f"Model returned unsupported action: {type(action).__name__}",
                 execution_id=execution_id,
             )
+
+        tool_call_history.append(action)
 
         if tool_calls >= selected_limits.tool_calls:
             raise ModelLimitError(
