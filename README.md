@@ -30,7 +30,11 @@ structured traces, artifacts, and a typed result.
 `returns` accepts dataclasses, Pydantic models, and other types supported by Pydantic's
 `TypeAdapter`.
 
-The project is in early development. See [the design specification](docs/design.md).
+The project is in early development.
+
+- [Start the documentation](docs/index.md)
+- [Follow the first-agent tutorial](docs/getting-started/first-agent.md)
+- [Read the design specification](docs/design.md)
 
 ## OpenRouter
 
@@ -147,10 +151,11 @@ Custom instruction objects can implement `render() -> str`.
 
 ```bash
 python -m venv .venv
-.venv/bin/pip install -e '.[dev]'
+.venv/bin/pip install -e '.[dev,docs]'
 .venv/bin/pytest
 .venv/bin/ruff check .
 .venv/bin/mypy
+.venv/bin/mkdocs build --strict
 ```
 
 Live OpenRouter smoke tests are opt-in:
