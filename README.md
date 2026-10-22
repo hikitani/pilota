@@ -1,53 +1,36 @@
-# Pilota
+<p align="center">
+  <a href="https://hikitani.github.io/pilota/">
+    <img src="https://raw.githubusercontent.com/hikitani/pilota/main/docs/assets/logo.svg" alt="Pilota" width="96" height="96">
+  </a>
+</p>
 
-Pilota embeds bounded autonomous AI work into ordinary Python programs.
+<h1 align="center">Pilota</h1>
 
-```python
-from dataclasses import dataclass
+<p align="center">
+  <strong>Put agents inside Python. Keep Python in control.</strong>
+</p>
 
-from pilota import FinalResult, ScriptedModel, agent
+<p align="center">
+  <a href="https://pypi.org/project/pilota/"><img src="https://img.shields.io/pypi/v/pilota?color=8b5cf6" alt="PyPI"></a>
+  <a href="https://pypi.org/project/pilota/"><img src="https://img.shields.io/pypi/pyversions/pilota?color=8b5cf6" alt="Python versions"></a>
+  <a href="https://github.com/hikitani/pilota/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-8b5cf6" alt="License: MIT"></a>
+  <a href="https://hikitani.github.io/pilota/"><img src="https://img.shields.io/badge/docs-hikitani.github.io%2Fpilota-8b5cf6" alt="Documentation"></a>
+</p>
 
+<p align="center">
+  <a href="https://hikitani.github.io/pilota/">Documentation</a>
+  ·
+  <a href="https://hikitani.github.io/pilota/getting-started/first-agent/">Tutorial</a>
+  ·
+  <a href="https://hikitani.github.io/pilota/reference/api/">API reference</a>
+</p>
 
-@dataclass
-class Plan:
-    steps: list[str]
+---
 
-
-task = "Add response caching"
-
-plan = agent(
-    "Create an implementation plan",
-    model=ScriptedModel([FinalResult({"steps": ["Inspect the project", "Implement the change"]})]),
-    context={"task": task},
-    returns=Plan,
-)
-```
-
-Python owns sequencing, branching, loops, retries, memory, cancellation, and validation.
-Pilota owns one explicit agent execution boundary with typed inputs, constrained authority,
-structured traces, artifacts, and a typed result.
-
-`returns` accepts dataclasses, Pydantic models, and other types supported by Pydantic's
-`TypeAdapter`.
-
-The project is in early development.
-
-- [Start the documentation](https://hikitani.github.io/pilota/)
-- [Follow the first-agent tutorial](https://hikitani.github.io/pilota/getting-started/first-agent/)
-- [Read the design specification](https://hikitani.github.io/pilota/design/)
-
-## OpenRouter
-
-Install the provider extra and select an OpenRouter model explicitly:
-
-```bash
-pip install 'pilota[openrouter]'
-export OPENROUTER_API_KEY=...
-export OPENROUTER_MODEL=...
-```
+Pilota runs one bounded AI task as an ordinary typed expression. Your program owns the
+workflow. The agent receives only the context, authority, and budget you grant.
 
 ```python
-import os
 from dataclasses import dataclass
 
 from pilota import agent
@@ -59,110 +42,36 @@ class Plan:
     steps: list[str]
 
 
-with OpenRouterModel(os.environ["OPENROUTER_MODEL"]) as model:
+with OpenRouterModel("openai/gpt-4.1-mini") as model:
     plan = agent(
-        "Create an implementation plan",
+        "Plan the requested change",
         model=model,
-        context={"task": "Add response caching"},
+        context={"request": "Add response caching"},
         returns=Plan,
     )
+
+for step in plan.steps:
+    print(step)
 ```
 
-The adapter sends Pilota tool schemas plus a strict `final_result` function on every turn,
-without `response_format`. The selected model must support tool calling. The name
-`final_result` is reserved for completion; invalid results receive validation feedback with
-up to `Limits(result_retries=2)` retries, also bounded by the model-call limit.
-Tool-call batches execute sequentially with per-call limits and cancellation checks.
-Final results must be submitted alone, not mixed with tool calls.
+- **Ordinary Python**: loops, branches, retries, and tests stay in your code.
+- **Typed contracts**: request a dataclass, Pydantic model, or any `TypeAdapter` type.
+- **Explicit authority**: expose selected tools, read-only resources, and a policy-controlled workspace.
+- **Bounded execution**: limit model calls, tool calls, result retries, and wall time.
+- **Inspectable outcomes**: keep the typed result, usage, trace, and changed-file artifacts.
+- **Deterministic tests**: drive the full runtime with `ScriptedModel`, without network calls.
 
-See the [OpenRouter provider guide](https://hikitani.github.io/pilota/openrouter/) for configuration, typed results, tool
-calling, failure behavior, and executable examples.
-
-## Shell tool
-
-`Shell` exposes only caller-configured command aliases, runs argv without shell
-interpretation, requires workspace `execute` permission, uses a sanitized environment, and
-returns bounded stdout and stderr:
-
-```python
-import sys
-
-from pilota import DirectoryWorkspace, Shell
-
-workspace = DirectoryWorkspace(".", allow={"read", "execute"})
-shell = Shell({"tests": [sys.executable, "-m", "pytest"]})
-```
-
-The local process is not a filesystem or network sandbox. See the
-[Shell tool guide](https://hikitani.github.io/pilota/shell/) for its authority model and safe usage.
-
-## Limits and cancellation
-
-`Limits` prevents further runtime actions after a wall-time deadline, model-call count, or
-tool-call count. Cancellation is caller-controlled with a standard `threading.Event` and is
-checked between provider responses and tool calls:
-
-```python
-from datetime import timedelta
-from threading import Event
-
-from pilota import Limits, agent
-
-cancelled = Event()
-
-result = agent(
-    "Update the implementation",
-    model=model,
-    workspace=workspace,
-    tools=tools,
-    limits=Limits(wall_time=timedelta(minutes=5), tool_calls=25),
-    cancel_event=cancelled,
-    returns=Change,
-)
-```
-
-Cancellation raises `ExecutionCancelled` with the execution ID, partial artifacts, and trace.
-The event does not interrupt an in-flight provider request or subprocess; it stops the next
-runtime action.
-
-## Instructions
-
-Plain strings are always literal instruction text. Files are loaded only through an explicit
-`InstructionFile`, once before the first model call:
-
-```python
-from pilota import InstructionFile, agent
-
-result = agent(
-    "Review the implementation",
-    model=model,
-    instructions=[
-        "Keep the review concise.",
-        InstructionFile("instructions/security.md"),
-    ],
-    returns=Review,
-)
-```
-
-Missing files and decoding failures raise `ConfigurationError` before the provider is called.
-Custom instruction objects can implement `render() -> str`.
-
-## Development
+## Installation
 
 ```bash
-python -m venv .venv
-.venv/bin/pip install -e '.[dev,docs]'
-.venv/bin/pytest
-.venv/bin/ruff check .
-.venv/bin/mypy
-.venv/bin/mkdocs build --strict
+pip install 'pilota[openrouter]'
 ```
 
-Live OpenRouter smoke tests are opt-in:
+Python 3.11+. The core package (`pip install pilota`) has no HTTP client; the `openrouter`
+extra adds the OpenRouter provider.
 
-```bash
-PILOTA_RUN_OPENROUTER_TESTS=1 \
-OPENROUTER_API_KEY=... \
-OPENROUTER_MODEL=... \
-.venv/bin/pytest tests/integration/test_openrouter_live.py
-```
+> **Early development.** Versions `0.0.x` may contain breaking changes.
+
+## License
+
+[MIT](https://github.com/hikitani/pilota/blob/main/LICENSE)
