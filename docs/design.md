@@ -455,6 +455,7 @@ result = agent(
     returns=ResultType,
     model=model,
     limits=limits,
+    cancel_event=cancel_event,
     metadata=metadata,
 )
 ```
@@ -473,6 +474,7 @@ def agent(
     returns: type[T] = str,
     model: Model | None = None,
     limits: Limits | None = None,
+    cancel_event: Event | None = None,
     metadata: Mapping[str, str] | None = None,
 ) -> T:
     ...
@@ -624,17 +626,22 @@ The original task runs once. The loop has a different purpose and a different in
 ### 9.4 Time-bounded work
 
 ```python
-with deadline(seconds=300):
-    result = agent(
-        task,
-        workspace=repo,
-        tools=[Shell(), Editor()],
-        limits=Limits(tool_calls=50),
-        returns=Change,
-    )
+result = agent(
+    task,
+    workspace=repo,
+    tools=[Shell(), Editor()],
+    limits=Limits(
+        wall_time=timedelta(minutes=5),
+        tool_calls=50,
+    ),
+    cancel_event=cancel_event,
+    returns=Change,
+)
 ```
 
-Timeout behavior is controlled by Python or an explicit limit object, not an implicit retry policy.
+The standard `threading.Event` remains under application control. Wall time and cancellation
+are cooperative boundaries checked between provider and tool calls; provider- and tool-specific
+timeouts control work already in flight. Neither mechanism implies a retry policy.
 
 ### 9.5 Parallel independent work
 

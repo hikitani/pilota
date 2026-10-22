@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Generic, Literal, TypeVar
@@ -22,8 +22,14 @@ class ExecutionStatus(StrEnum):
 class Limits:
     model_calls: int = 30
     tool_calls: int = 100
+    wall_time: timedelta | None = None
 
     def __post_init__(self) -> None:
+        if self.wall_time is not None:
+            if not isinstance(self.wall_time, timedelta):
+                raise TypeError("wall_time must be a datetime.timedelta")
+            if self.wall_time <= timedelta(0):
+                raise ValueError("wall_time must be greater than zero")
         if self.model_calls < 1:
             raise ValueError("model_calls must be at least 1")
         if self.tool_calls < 0:

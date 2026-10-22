@@ -78,6 +78,7 @@ def test_run_agent_executes_tools_and_collects_artifacts() -> None:
     assert execution.artifacts == (Artifact(path=Path("src/cache.py"), operation="created"),)
     assert execution.usage.model_calls == 2
     assert execution.usage.tool_calls == 1
+    assert "artifact.created" in [event.kind for event in execution.trace.events]
     assert model.requests[1].observations[0].output == {
         "path": "src/cache.py",
         "written": 11,

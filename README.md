@@ -85,6 +85,35 @@ shell = Shell({"tests": [sys.executable, "-m", "pytest"]})
 The local process is not a filesystem or network sandbox. See the
 [Shell tool guide](docs/shell.md) for its authority model and safe usage.
 
+## Limits and cancellation
+
+`Limits` prevents further runtime actions after a wall-time deadline, model-call count, or
+tool-call count. Cancellation is caller-controlled with a standard `threading.Event` and is
+checked between provider responses and tool calls:
+
+```python
+from datetime import timedelta
+from threading import Event
+
+from pilota import Limits, agent
+
+cancelled = Event()
+
+result = agent(
+    "Update the implementation",
+    model=model,
+    workspace=workspace,
+    tools=tools,
+    limits=Limits(wall_time=timedelta(minutes=5), tool_calls=25),
+    cancel_event=cancelled,
+    returns=Change,
+)
+```
+
+Cancellation raises `ExecutionCancelled` with the execution ID, partial artifacts, and trace.
+The event does not interrupt an in-flight provider request or subprocess; it stops the next
+runtime action.
+
 ## Development
 
 ```bash
