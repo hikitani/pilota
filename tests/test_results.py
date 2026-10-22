@@ -1,7 +1,7 @@
 import pytest
 from pydantic import BaseModel, ConfigDict
 
-from pilota import FinalResult, ScriptedModel, agent
+from pilota import FinalResult, Limits, ScriptedModel, agent
 from pilota.errors import ResultContractError
 
 
@@ -55,4 +55,5 @@ def test_pydantic_model_configuration_is_enforced() -> None:
             "Create an invalid plan",
             model=model,
             returns=Plan,
+            limits=Limits(result_retries=0),
         )

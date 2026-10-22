@@ -64,8 +64,10 @@ with OpenRouterModel(os.environ["OPENROUTER_MODEL"]) as model:
     )
 ```
 
-The adapter sends Pilota tool schemas on every turn and uses OpenRouter structured outputs for
-the requested Python result type. The selected model must support the features used by the call.
+The adapter sends Pilota tool schemas plus a strict `final_result` function on every turn,
+without `response_format`. The selected model must support tool calling. The name
+`final_result` is reserved for completion; invalid results receive validation feedback with
+up to `Limits(result_retries=2)` retries, also bounded by the model-call limit.
 
 See the [OpenRouter provider guide](docs/openrouter.md) for configuration, typed results, tool
 calling, failure behavior, and executable examples.

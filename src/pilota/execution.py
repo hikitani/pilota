@@ -14,10 +14,12 @@ from pilota.errors import (
     ExecutionCancelled,
     ModelLimitError,
     PermissionDenied,
+    ResultContractError,
     ToolError,
 )
 from pilota.instructions import InstructionInput, render_instructions
 from pilota.models import (
+    RESULT_TOOL_NAME,
     Artifact,
     Execution,
     ExecutionStatus,
@@ -70,6 +72,7 @@ def run_agent(
     observations: list[Observation] = []
     model_calls = 0
     tool_calls = 0
+    result_rejections = 0
     workspace_snapshot = workspace.snapshot() if workspace is not None else {}
 
     recorder.record("execution.started", {"task": task})
@@ -108,7 +111,27 @@ def run_agent(
         )
 
         if isinstance(action, FinalResult):
-            value = codec.decode(action.value, execution_id=execution_id)
+            try:
+                value = codec.decode(action.value, execution_id=execution_id)
+            except ResultContractError as error:
+                recorder.record("result.rejected", {"error": str(error)})
+                if result_rejections >= selected_limits.result_retries:
+                    artifacts = _current_artifacts(workspace, workspace_snapshot)
+                    _record_artifacts(recorder, artifacts)
+                    recorder.record("execution.limit_exhausted", {"limit": "result_retries"})
+                    raise ResultContractError(
+                        str(error),
+                        execution_id=execution_id,
+                        artifacts=tuple(str(artifact.path) for artifact in artifacts),
+                        trace=recorder.snapshot(),
+                    ) from error
+                result_rejections += 1
+                call_id = action.id or str(uuid4())
+                tool_call_history.append(
+                    ToolCall(call_id, RESULT_TOOL_NAME, action.value, action.provider_data)
+                )
+                observations.append(Observation(call_id, RESULT_TOOL_NAME, error=str(error)))
+                continue
             _check_execution_boundary(
                 execution_id=execution_id,
                 boundary="after_result_validation",
@@ -260,6 +283,8 @@ def run_agent(
 def _build_tool_registry(tools: Sequence[Tool]) -> dict[str, Tool]:
     registry: dict[str, Tool] = {}
     for tool in tools:
+        if tool.spec.name == RESULT_TOOL_NAME:
+            raise ConfigurationError(f"Reserved tool name: {RESULT_TOOL_NAME}")
         if tool.spec.name in registry:
             raise ConfigurationError(f"Duplicate tool name: {tool.spec.name}")
         registry[tool.spec.name] = tool

@@ -4,6 +4,7 @@ from pilota.api import agent
 from pilota.execution import run_agent
 from pilota.instructions import Instruction, InstructionFile
 from pilota.models import (
+    RESULT_TOOL_NAME,
     Artifact,
     Execution,
     ExecutionStatus,
@@ -22,6 +23,7 @@ from pilota.workspaces import DirectoryWorkspace, InMemoryWorkspace
 __version__ = "0.1.0"
 
 __all__ = [
+    "RESULT_TOOL_NAME",
     "Artifact",
     "DirectoryResource",
     "DirectoryWorkspace",

@@ -801,9 +801,18 @@ The runtime:
 
 1. obtains a final result;
 2. validates it against `returns`;
-3. optionally performs bounded format repair;
+3. feeds rejected results back as reserved `final_result` calls and validation-error
+   observations, with up to `Limits.result_retries` retries (default 2), bounded also by
+   the model-call limit;
 4. records usage and final status;
 5. returns the typed value or raises a structured exception.
+
+`RESULT_TOOL_NAME` reserves `final_result` across providers and user/resource tools.
+OpenRouter exposes it as a strict function tool alongside ordinary tools, requires a tool
+call each turn, and disables parallel calls. It does not use `response_format`. Non-object
+results use a required `value` wrapper. Final attempts retain call IDs and provider metadata
+for replay; plain text is also validated as a final attempt. Exhausted result retries raise
+`ResultContractError` carrying the execution ID, trace, and artifacts.
 
 ---
 

@@ -30,11 +30,14 @@ def test_openrouter_returns_a_typed_structured_result() -> None:
             "role": "user",
             "content": '{"task":"Plan caching","context":{"path":"src/cache.py"}}',
         }
-        assert payload["response_format"]["type"] == "json_schema"
-        assert payload["response_format"]["json_schema"]["strict"] is True
-        assert payload["response_format"]["json_schema"]["schema"]["type"] == "object"
-        assert payload["response_format"]["json_schema"]["schema"]["additionalProperties"] is False
-        assert "tools" not in payload
+        assert "response_format" not in payload
+        function = payload["tools"][0]["function"]
+        assert function["name"] == "final_result"
+        assert function["strict"] is True
+        assert function["parameters"]["type"] == "object"
+        assert function["parameters"]["additionalProperties"] is False
+        assert payload["tool_choice"] == "required"
+        assert payload["parallel_tool_calls"] is False
 
         return httpx.Response(
             200,
@@ -154,7 +157,7 @@ def test_openrouter_round_trips_a_tool_call_and_observation() -> None:
     assert result.summary == "Created cache module"
     assert workspace.read_text("src/cache.py") == "CACHE = {}\n"
     assert requests[0]["tools"] == requests[1]["tools"]
-    assert requests[0]["tool_choice"] == "auto"
+    assert requests[0]["tool_choice"] == "required"
     assert requests[0]["parallel_tool_calls"] is False
     assert requests[1]["messages"][-2]["tool_calls"][0]["id"] == "write-cache"
     assert requests[1]["messages"][-2]["reasoning_details"] == [
@@ -236,3 +239,80 @@ def test_openrouter_requires_an_api_key(monkeypatch: pytest.MonkeyPatch) -> None
 
     with pytest.raises(ConfigurationError, match="OPENROUTER_API_KEY"):
         OpenRouterModel("example/model")
+
+
+@pytest.mark.parametrize("wrapped", [True, False])
+def test_final_result_tool_retry_and_replay(wrapped: bool) -> None:
+    requests: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        requests.append(payload)
+        parameters = payload["tools"][-1]["function"]["parameters"]
+        assert parameters["additionalProperties"] is False
+        if wrapped:
+            assert parameters["required"] == ["value"]
+            assert parameters["properties"]["value"]["type"] == "integer"
+        value: Any = "bad" if len(requests) == 1 else 5
+        arguments = {"value": value} if wrapped else {"summary": value, "files": []}
+        if not wrapped and len(requests) == 1:
+            del arguments["files"]
+        if not wrapped and len(requests) == 2:
+            arguments["summary"] = "done"
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": None,
+                            "reasoning_details": [
+                                {"type": "reasoning.encrypted", "data": "opaque"}
+                            ],
+                            "tool_calls": [
+                                {
+                                    "id": "final-1",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "final_result",
+                                        "arguments": json.dumps(arguments),
+                                    },
+                                }
+                            ],
+                        }
+                    }
+                ]
+            },
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        model = OpenRouterModel("example/model", api_key="test-key", client=client)
+        if wrapped:
+            assert agent("Return five", model=model, returns=int) == 5
+        else:
+            assert agent("Return change", model=model, returns=Change).summary == "done"
+    assistant, observation = requests[1]["messages"][-2:]
+    assert assistant["tool_calls"][0]["id"] == "final-1"
+    assert json.loads(assistant["tool_calls"][0]["function"]["arguments"]) == (
+        {"value": "bad"} if wrapped else {"summary": "bad"}
+    )
+    assert assistant["reasoning_details"][0]["data"] == "opaque"
+    assert observation["tool_call_id"] == "final-1"
+    assert "error" in json.loads(observation["content"])
+
+
+@pytest.mark.parametrize("text", ["", "not JSON", '"wrong"', "null"])
+def test_text_fallback_receives_validation_feedback(text: str) -> None:
+    requests: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(json.loads(request.content))
+        return httpx.Response(
+            200, json={"choices": [{"message": {"content": text if len(requests) == 1 else "5"}}]}
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        model = OpenRouterModel("example/model", api_key="test-key", client=client)
+        assert agent("Return five", model=model, returns=int) == 5
+    assert requests[1]["messages"][-1]["name"] == "final_result"
+    assert "error" in json.loads(requests[1]["messages"][-1]["content"])
