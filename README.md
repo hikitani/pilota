@@ -17,9 +17,7 @@ task = "Add response caching"
 
 plan = agent(
     "Create an implementation plan",
-    model=ScriptedModel(
-        [FinalResult({"steps": ["Inspect the project", "Implement the change"]})]
-    ),
+    model=ScriptedModel([FinalResult({"steps": ["Inspect the project", "Implement the change"]})]),
     context={"task": task},
     returns=Plan,
 )
