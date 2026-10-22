@@ -32,9 +32,9 @@ structured traces, artifacts, and a typed result.
 
 The project is in early development.
 
-- [Start the documentation](docs/index.md)
-- [Follow the first-agent tutorial](docs/getting-started/first-agent.md)
-- [Read the design specification](docs/design.md)
+- [Start the documentation](https://hikitani.github.io/pilota/)
+- [Follow the first-agent tutorial](https://hikitani.github.io/pilota/getting-started/first-agent/)
+- [Read the design specification](https://hikitani.github.io/pilota/design/)
 
 ## OpenRouter
 
@@ -75,7 +75,7 @@ up to `Limits(result_retries=2)` retries, also bounded by the model-call limit.
 Tool-call batches execute sequentially with per-call limits and cancellation checks.
 Final results must be submitted alone, not mixed with tool calls.
 
-See the [OpenRouter provider guide](docs/openrouter.md) for configuration, typed results, tool
+See the [OpenRouter provider guide](https://hikitani.github.io/pilota/openrouter/) for configuration, typed results, tool
 calling, failure behavior, and executable examples.
 
 ## Shell tool
@@ -94,7 +94,7 @@ shell = Shell({"tests": [sys.executable, "-m", "pytest"]})
 ```
 
 The local process is not a filesystem or network sandbox. See the
-[Shell tool guide](docs/shell.md) for its authority model and safe usage.
+[Shell tool guide](https://hikitani.github.io/pilota/shell/) for its authority model and safe usage.
 
 ## Limits and cancellation
 

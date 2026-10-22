@@ -20,7 +20,7 @@ from pilota.resources import DirectoryResource, Resource, ResourceOperation
 from pilota.tools import Editor, Shell
 from pilota.workspaces import DirectoryWorkspace, InMemoryWorkspace
 
-__version__ = "0.1.0"
+__version__ = "0.0.1"
 
 __all__ = [
     "RESULT_TOOL_NAME",
