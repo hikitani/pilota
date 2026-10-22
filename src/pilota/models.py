@@ -77,6 +77,7 @@ class ModelRequest:
     instructions: Sequence[str]
     tools: Sequence[ToolSpec]
     result_schema: Mapping[str, Any]
+    tool_calls: Sequence[ToolCall]
     observations: Sequence[Observation]
 
 
@@ -85,6 +86,7 @@ class ToolCall:
     id: str
     name: str
     arguments: Mapping[str, Any]
+    provider_data: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
 
 @dataclass(frozen=True)

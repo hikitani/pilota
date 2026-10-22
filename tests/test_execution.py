@@ -82,6 +82,17 @@ def test_run_agent_executes_tools_and_collects_artifacts() -> None:
         "path": "src/cache.py",
         "written": 11,
     }
+    assert model.requests[1].tool_calls == (
+        ToolCall(
+            id="write-cache",
+            name="editor",
+            arguments={
+                "operation": "write",
+                "path": "src/cache.py",
+                "content": "CACHE = {}\n",
+            },
+        ),
+    )
 
 
 def test_permission_denial_is_returned_to_model() -> None:
