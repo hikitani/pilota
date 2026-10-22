@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Generic, Literal, TypeVar
 
 T = TypeVar("T")
+RESULT_TOOL_NAME = "final_result"
 
 
 class ExecutionStatus(StrEnum):
@@ -23,6 +24,7 @@ class Limits:
     model_calls: int = 30
     tool_calls: int = 100
     wall_time: timedelta | None = None
+    result_retries: int = 2
 
     def __post_init__(self) -> None:
         if self.wall_time is not None:
@@ -34,6 +36,8 @@ class Limits:
             raise ValueError("model_calls must be at least 1")
         if self.tool_calls < 0:
             raise ValueError("tool_calls cannot be negative")
+        if self.result_retries < 0:
+            raise ValueError("result_retries cannot be negative")
 
 
 @dataclass(frozen=True)
@@ -91,13 +95,15 @@ class ModelRequest:
 class ToolCall:
     id: str
     name: str
-    arguments: Mapping[str, Any]
+    arguments: Any
     provider_data: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
 
 @dataclass(frozen=True)
 class FinalResult:
     value: Any
+    id: str | None = None
+    provider_data: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
 
 ModelAction = ToolCall | FinalResult

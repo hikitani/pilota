@@ -15,16 +15,23 @@ export OPENROUTER_MODEL=...
 The model is always selected by the caller. Choose one that supports every feature used by
 the execution:
 
-- structured outputs are required for typed final results;
-- tool calling is required when `tools` are supplied;
-- both features are required for a tool-using execution.
+- tool calling is required for every execution, including calls without user tools;
+- strict function schemas describe typed final results through the reserved `final_result` tool.
 
 Feature support varies between models and routed providers.
 
 ## Typed result
 
 Pilota converts the type passed through `returns` into a strict JSON Schema, sends that
-schema to OpenRouter, and validates the final response before returning it to Python.
+schema as the parameters of a strict `final_result` function, and validates the final
+response before returning it to Python. Non-object result types are wrapped in a required
+`value` property and unwrapped on receipt. No `response_format` is sent. Every turn uses
+`tool_choice: "required"` and `parallel_tool_calls: false`.
+
+Invalid final results (including plain-text fallback responses) are replayed as
+`final_result` tool calls with validation-error observations. `Limits.result_retries`
+defaults to 2; exhausting it raises `ResultContractError` with trace and artifacts.
+The model-call limit still applies. User and resource tools cannot use the reserved name.
 
 ```python
 import os

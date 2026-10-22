@@ -12,7 +12,15 @@ import httpx
 from pydantic_core import to_jsonable_python
 
 from pilota.errors import ConfigurationError, ProviderError
-from pilota.models import FinalResult, ModelAction, ModelRequest, Observation, ToolCall, ToolSpec
+from pilota.models import (
+    RESULT_TOOL_NAME,
+    FinalResult,
+    ModelAction,
+    ModelRequest,
+    Observation,
+    ToolCall,
+    ToolSpec,
+)
 
 DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 
@@ -74,7 +82,11 @@ class OpenRouterModel:
                 execution_id=request.execution_id,
             ) from error
 
-        return _parse_action(body, execution_id=request.execution_id)
+        return _parse_action(
+            body,
+            execution_id=request.execution_id,
+            wrapped_result=request.result_schema.get("type") != "object",
+        )
 
     def close(self) -> None:
         if self._owns_client:
@@ -101,20 +113,32 @@ class OpenRouterModel:
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": _messages(request),
-            "response_format": {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "pilota_result",
-                    "strict": True,
-                    "schema": _strict_json_schema(request.result_schema),
+            "tools": [
+                *[_tool_payload(tool) for tool in request.tools],
+                {
+                    "type": "function",
+                    "function": {
+                        "name": RESULT_TOOL_NAME,
+                        "description": "Submit the final result when the task is complete.",
+                        "strict": True,
+                        "parameters": _result_parameters(request.result_schema),
+                    },
                 },
-            },
+            ],
+            "tool_choice": "required",
+            "parallel_tool_calls": False,
         }
-        if request.tools:
-            payload["tools"] = [_tool_payload(tool) for tool in request.tools]
-            payload["tool_choice"] = "auto"
-            payload["parallel_tool_calls"] = False
         return payload
+
+
+def _result_parameters(schema: Mapping[str, Any]) -> dict[str, Any]:
+    if schema.get("type") != "object":
+        value_schema = dict(schema)
+        definitions = value_schema.pop("$defs", None)
+        schema = {"type": "object", "properties": {"value": value_schema}, "required": ["value"]}
+        if definitions is not None:
+            schema["$defs"] = definitions
+    return _strict_json_schema(schema)
 
 
 def _messages(request: ModelRequest) -> list[dict[str, Any]]:
@@ -126,7 +150,7 @@ def _messages(request: ModelRequest) -> list[dict[str, Any]]:
 
     system_content = (
         "Execute one bounded task. Use only the supplied tools. "
-        "When the task is complete, return a JSON value matching the required schema."
+        "When the task is complete, call final_result with the required result."
     )
     if request.instructions:
         system_content += "\n\nInstructions:\n" + "\n".join(
@@ -153,12 +177,18 @@ def _messages(request: ModelRequest) -> list[dict[str, Any]]:
         request.observations,
         strict=True,
     ):
-        messages.extend(_tool_messages(tool_call, observation))
+        messages.extend(
+            _tool_messages(
+                tool_call, observation, wrapped_result=request.result_schema.get("type") != "object"
+            )
+        )
 
     return messages
 
 
-def _tool_messages(tool_call: ToolCall, observation: Observation) -> Sequence[dict[str, Any]]:
+def _tool_messages(
+    tool_call: ToolCall, observation: Observation, *, wrapped_result: bool
+) -> Sequence[dict[str, Any]]:
     if observation.call_id != tool_call.id or observation.tool_name != tool_call.name:
         raise ConfigurationError("Tool-call history does not match its observation")
 
@@ -177,7 +207,11 @@ def _tool_messages(tool_call: ToolCall, observation: Observation) -> Sequence[di
                     "function": {
                         "name": tool_call.name,
                         "arguments": json.dumps(
-                            to_jsonable_python(tool_call.arguments),
+                            to_jsonable_python(
+                                {"value": tool_call.arguments}
+                                if wrapped_result and tool_call.name == RESULT_TOOL_NAME
+                                else tool_call.arguments
+                            ),
                             ensure_ascii=False,
                             separators=(",", ":"),
                         ),
@@ -236,7 +270,7 @@ def _normalize_schema_node(value: Any) -> Any:
     return value
 
 
-def _parse_action(body: Any, *, execution_id: str) -> ModelAction:
+def _parse_action(body: Any, *, execution_id: str, wrapped_result: bool = False) -> ModelAction:
     if not isinstance(body, Mapping):
         raise ProviderError("OpenRouter response must be a JSON object", execution_id=execution_id)
 
@@ -254,12 +288,18 @@ def _parse_action(body: Any, *, execution_id: str) -> ModelAction:
 
     tool_calls = message.get("tool_calls")
     if tool_calls:
-        return _parse_tool_call(tool_calls, message=message, execution_id=execution_id)
+        call = _parse_tool_call(tool_calls, message=message, execution_id=execution_id)
+        if call.name == RESULT_TOOL_NAME:
+            value = call.arguments
+            if wrapped_result and isinstance(value, Mapping) and "value" in value:
+                value = value["value"]
+            return FinalResult(value, id=call.id, provider_data=call.provider_data)
+        return call
 
     content = message.get("content")
     if isinstance(content, (Mapping, list)):
         return FinalResult(content)
-    if not isinstance(content, str) or not content.strip():
+    if not isinstance(content, str):
         raise ProviderError(
             "OpenRouter assistant message has no result content",
             execution_id=execution_id,
@@ -267,11 +307,8 @@ def _parse_action(body: Any, *, execution_id: str) -> ModelAction:
 
     try:
         return FinalResult(json.loads(content))
-    except json.JSONDecodeError as error:
-        raise ProviderError(
-            "OpenRouter assistant result is not valid JSON",
-            execution_id=execution_id,
-        ) from error
+    except json.JSONDecodeError:
+        return FinalResult(content)
 
 
 def _parse_tool_call(
