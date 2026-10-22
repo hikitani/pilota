@@ -98,7 +98,28 @@ def run_agent(
             observations=tuple(observations),
         )
         recorder.record("model.requested", {"call": model_calls + 1})
-        action = model.respond(request)
+        try:
+            action = model.respond(request)
+        except AgentError as error:
+            recorder.record("model.failed", {"error": str(error)})
+            try:
+                _check_execution_boundary(
+                    execution_id=execution_id,
+                    boundary="after_model",
+                    cancel_event=cancel_event,
+                    deadline=deadline,
+                    recorder=recorder,
+                    workspace=workspace,
+                    workspace_snapshot=workspace_snapshot,
+                )
+            except AgentError as boundary_error:
+                raise boundary_error from error
+            artifacts = _current_artifacts(workspace, workspace_snapshot)
+            _record_artifacts(recorder, artifacts)
+            error.execution_id = execution_id
+            error.artifacts = tuple(str(artifact.path) for artifact in artifacts)
+            error.trace = recorder.snapshot()
+            raise
         model_calls += 1
         _check_execution_boundary(
             execution_id=execution_id,

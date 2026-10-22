@@ -8,13 +8,57 @@ import pytest
 
 from pilota import Editor, InMemoryWorkspace, agent
 from pilota.errors import ConfigurationError, ProviderError
-from pilota.providers.openrouter import OpenRouterModel
+from pilota.models import ToolSpec
+from pilota.providers.openrouter import OpenRouterModel, _result_parameters, _tool_payload
 
 
 @dataclass(frozen=True)
 class Change:
     summary: str
     files: list[Path]
+
+
+@pytest.mark.parametrize("tool", [False, True])
+def test_schema_refs_are_inlined(tool: bool) -> None:
+    schema = {
+        "type": "object",
+        "$defs": {
+            "Name": {"type": "string"},
+            "Detail": {"type": "object", "properties": {"name": {"$ref": "#/$defs/Name"}}},
+        },
+        "properties": {"left": {"$ref": "#/$defs/Detail"}, "right": {"$ref": "#/$defs/Detail"}},
+    }
+    parameters = (
+        _tool_payload(ToolSpec("test", "", schema))["function"]["parameters"]
+        if tool
+        else _result_parameters(schema)
+    )
+    assert "$ref" not in json.dumps(parameters)
+    assert "$defs" not in json.dumps(parameters)
+    assert parameters["properties"]["left"] == parameters["properties"]["right"]
+    assert parameters["properties"]["left"]["properties"]["name"] == {"type": "string"}
+    assert "$defs" in schema
+
+
+def test_recursive_schema_retains_only_cyclic_definitions() -> None:
+    schema = {
+        "$ref": "#/$defs/Node",
+        "$defs": {
+            "Label": {"type": "string"},
+            "Node": {
+                "type": "object",
+                "properties": {
+                    "label": {"$ref": "#/$defs/Label"},
+                    "children": {"type": "array", "items": {"$ref": "#/$defs/Node"}},
+                },
+            },
+        },
+    }
+    parameters = _result_parameters(schema)
+    assert set(parameters["$defs"]) == {"Node"}
+    node = parameters["$defs"]["Node"]
+    assert node["properties"]["label"] == {"type": "string"}
+    assert node["properties"]["children"]["items"] == {"$ref": "#/$defs/Node"}
 
 
 def test_openrouter_returns_a_typed_structured_result() -> None:
