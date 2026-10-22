@@ -27,6 +27,9 @@ Python owns sequencing, branching, loops, retries, memory, cancellation, and val
 Pilota owns one explicit agent execution boundary with typed inputs, constrained authority,
 structured traces, artifacts, and a typed result.
 
+`returns` accepts dataclasses, Pydantic models, and other types supported by Pydantic's
+`TypeAdapter`.
+
 The project is in early development. See [the design specification](docs/design.md).
 
 ## OpenRouter
@@ -113,6 +116,28 @@ result = agent(
 Cancellation raises `ExecutionCancelled` with the execution ID, partial artifacts, and trace.
 The event does not interrupt an in-flight provider request or subprocess; it stops the next
 runtime action.
+
+## Instructions
+
+Plain strings are always literal instruction text. Files are loaded only through an explicit
+`InstructionFile`, once before the first model call:
+
+```python
+from pilota import InstructionFile, agent
+
+result = agent(
+    "Review the implementation",
+    model=model,
+    instructions=[
+        "Keep the review concise.",
+        InstructionFile("instructions/security.md"),
+    ],
+    returns=Review,
+)
+```
+
+Missing files and decoding failures raise `ConfigurationError` before the provider is called.
+Custom instruction objects can implement `render() -> str`.
 
 ## Development
 

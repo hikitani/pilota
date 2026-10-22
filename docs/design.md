@@ -297,11 +297,14 @@ Examples:
 instructions=[
     PythonStyle(),
     SecurityReview(),
+    InstructionFile("instructions/project.md"),
     *selected_skills,
 ]
 ```
 
 Instructions affect reasoning. They do not directly grant access or executable authority.
+Plain strings are literal text and are never interpreted as paths. `InstructionFile` is an
+explicit caller-authorized file read, rendered once before the first provider call.
 
 ### 6.6 Tools
 
@@ -469,7 +472,7 @@ def agent(
     context: Mapping[str, Serializable] | None = None,
     resources: Mapping[str, Resource] | None = None,
     workspace: Workspace | None = None,
-    instructions: Sequence[Instruction] | None = None,
+    instructions: Sequence[str | Instruction] | None = None,
     tools: Sequence[Tool] | None = None,
     returns: type[T] = str,
     model: Model | None = None,
@@ -964,6 +967,10 @@ class Workspace(Resource, Protocol):
 class Instruction(Protocol):
     def render(self) -> str: ...
 ```
+
+The built-in `InstructionFile(path, encoding="utf-8")` implements this protocol. File and
+custom instructions are rendered once per execution; render failures raise
+`ConfigurationError` before a model call.
 
 Instructions may originate from files, packages, registries, databases, or typed Python objects.
 

@@ -7,6 +7,7 @@ from threading import Event
 from typing import Any, TypeVar
 
 from pilota.execution import run_agent
+from pilota.instructions import InstructionInput
 from pilota.models import Limits
 from pilota.providers import Model
 from pilota.resources import Resource
@@ -22,7 +23,7 @@ def agent(
     returns: type[T],
     context: Mapping[str, Any] | None = None,
     resources: Mapping[str, Resource] | None = None,
-    instructions: Sequence[str] | None = None,
+    instructions: Sequence[InstructionInput] | None = None,
     tools: Sequence[Tool] | None = None,
     workspace: WorkspaceHandle | None = None,
     limits: Limits | None = None,
