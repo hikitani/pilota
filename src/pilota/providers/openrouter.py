@@ -243,7 +243,7 @@ def _tool_payload(tool: ToolSpec) -> dict[str, Any]:
         "function": {
             "name": tool.name,
             "description": tool.description,
-            "parameters": to_jsonable_python(tool.input_schema),
+            "parameters": _inline_schema_refs(to_jsonable_python(tool.input_schema)),
         },
     }
 
@@ -252,7 +252,47 @@ def _strict_json_schema(schema: Mapping[str, Any]) -> dict[str, Any]:
     normalized = _normalize_schema_node(deepcopy(dict(schema)))
     if not isinstance(normalized, dict):
         raise ConfigurationError("Result schema must be a JSON object")
-    return normalized
+    return _inline_schema_refs(normalized)
+
+
+def _inline_schema_refs(schema: dict[str, Any]) -> dict[str, Any]:
+    retained: set[str] = set()
+
+    def resolve(reference: str) -> Any:
+        target: Any = schema
+        for part in reference[2:].split("/"):
+            target = target[part.replace("~1", "/").replace("~0", "~")]
+        return target
+
+    def expand(node: Any, chain: tuple[str, ...] = ()) -> Any:
+        if isinstance(node, list):
+            return [expand(item, chain) for item in node]
+        if not isinstance(node, dict):
+            return node
+        reference = node.get("$ref")
+        if isinstance(reference, str) and reference.startswith("#/"):
+            if reference in chain:
+                retained.add(reference)
+            else:
+                expanded = expand(resolve(reference), (*chain, reference))
+                expanded.update(
+                    expand({key: value for key, value in node.items() if key != "$ref"}, chain)
+                )
+                return expanded
+        return {key: expand(value, chain) for key, value in node.items() if key != "$defs"}
+
+    result: dict[str, Any] = expand(schema)
+    completed: set[str] = set()
+    while retained - completed:
+        reference = next(iter(retained - completed))
+        completed.add(reference)
+        definition = expand(resolve(reference), (reference,))
+        target = result
+        parts = [part.replace("~1", "/").replace("~0", "~") for part in reference[2:].split("/")]
+        for part in parts[:-1]:
+            target = target.setdefault(part, {})
+        target[parts[-1]] = definition
+    return result
 
 
 def _normalize_schema_node(value: Any) -> Any:
