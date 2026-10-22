@@ -1,0 +1,133 @@
+site_name: Pilota
+site_description: Bounded AI agents as ordinary Python expressions
+site_url: https://hikitani.github.io/pilota/
+repo_url: https://github.com/hikitani/pilota
+repo_name: hikitani/pilota
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  language: en
+  logo: assets/logo.svg
+  favicon: assets/favicon.svg
+  font:
+    text: Inter
+    code: JetBrains Mono
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: pilota-light
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: pilota-dark
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - announce.dismiss
+    - content.action.edit
+    - content.code.annotate
+    - content.code.copy
+    - content.tabs.link
+    - navigation.footer
+    - navigation.indexes
+    - navigation.instant
+    - navigation.instant.prefetch
+    - navigation.path
+    - navigation.sections
+    - navigation.tabs
+    - navigation.top
+    - search.highlight
+    - search.share
+    - search.suggest
+    - toc.follow
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            docstring_style: google
+            heading_level: 2
+            members_order: source
+            merge_init_into_class: true
+            separate_signature: true
+            show_bases: false
+            show_category_heading: true
+            show_if_no_docstring: true
+            show_root_heading: true
+            show_signature_annotations: true
+            signature_crossrefs: true
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true
+
+extra_css:
+  - stylesheets/extra.css
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/hikitani/pilota
+  generator: false
+
+nav:
+  - Home: index.md
+  - Get started:
+      - Overview: getting-started/index.md
+      - Installation: getting-started/installation.md
+      - Your first agent: getting-started/first-agent.md
+      - Use a real model: getting-started/real-model.md
+  - Guides:
+      - Overview: guides/index.md
+      - Compose agents with Python: guides/python-orchestration.md
+      - Define typed results: guides/typed-results.md
+      - Supply context and instructions: guides/context-and-instructions.md
+      - Grant tools and resources: guides/authority.md
+      - Work with files and commands: guides/workspaces.md
+      - Bound and cancel execution: guides/limits-and-cancellation.md
+      - Inspect executions and failures: guides/executions-and-errors.md
+      - Test agent programs: guides/testing.md
+  - Concepts:
+      - Overview: concepts/index.md
+      - The execution boundary: concepts/execution-boundary.md
+      - Authority model: concepts/authority-model.md
+      - Execution lifecycle: concepts/execution-lifecycle.md
+  - Providers:
+      - OpenRouter: openrouter.md
+  - Built-in tools:
+      - Shell: shell.md
+  - Reference:
+      - Public API: reference/api.md
+      - Errors: reference/errors.md
+      - Trace events: reference/trace-events.md
+  - Project:
+      - Design specification: design.md
+      - Contributing: contributing.md
+
+strict: true
