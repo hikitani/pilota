@@ -36,9 +36,11 @@ Install the provider extra and select an OpenRouter model explicitly:
 ```bash
 pip install 'pilota[openrouter]'
 export OPENROUTER_API_KEY=...
+export OPENROUTER_MODEL=...
 ```
 
 ```python
+import os
 from dataclasses import dataclass
 
 from pilota import agent
@@ -50,7 +52,7 @@ class Plan:
     steps: list[str]
 
 
-with OpenRouterModel("openai/gpt-5.2") as model:
+with OpenRouterModel(os.environ["OPENROUTER_MODEL"]) as model:
     plan = agent(
         "Create an implementation plan",
         model=model,
@@ -61,6 +63,9 @@ with OpenRouterModel("openai/gpt-5.2") as model:
 
 The adapter sends Pilota tool schemas on every turn and uses OpenRouter structured outputs for
 the requested Python result type. The selected model must support the features used by the call.
+
+See the [OpenRouter provider guide](docs/openrouter.md) for configuration, typed results, tool
+calling, failure behavior, and executable examples.
 
 ## Development
 
