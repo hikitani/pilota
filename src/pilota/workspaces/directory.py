@@ -45,6 +45,15 @@ class DirectoryWorkspace:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content)
 
+    def execution_directory(self, path: str = ".") -> Path:
+        self._policy.authorize("execute", path)
+        target = self._resolve(path)
+        if not target.exists():
+            raise ValueError(f"Workspace execution directory does not exist: {path}")
+        if not target.is_dir():
+            raise ValueError(f"Workspace execution path is not a directory: {path}")
+        return target
+
     def snapshot(self) -> Mapping[str, str]:
         if not self.root.exists():
             return {}
