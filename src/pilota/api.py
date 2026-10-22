@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from threading import Event
 from typing import Any, TypeVar
 
 from pilota.execution import run_agent
@@ -25,6 +26,7 @@ def agent(
     tools: Sequence[Tool] | None = None,
     workspace: WorkspaceHandle | None = None,
     limits: Limits | None = None,
+    cancel_event: Event | None = None,
 ) -> T:
     return run_agent(
         task,
@@ -36,4 +38,5 @@ def agent(
         tools=tools,
         workspace=workspace,
         limits=limits,
+        cancel_event=cancel_event,
     ).value

@@ -3,17 +3,21 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any, TypeVar
+from threading import Event
+from time import monotonic
+from typing import Any, Never, TypeVar
 from uuid import uuid4
 
 from pilota.errors import (
     AgentError,
     ConfigurationError,
+    ExecutionCancelled,
     ModelLimitError,
     PermissionDenied,
     ToolError,
 )
 from pilota.models import (
+    Artifact,
     Execution,
     ExecutionStatus,
     FinalResult,
@@ -44,11 +48,17 @@ def run_agent(
     tools: Sequence[Tool] | None = None,
     workspace: WorkspaceHandle | None = None,
     limits: Limits | None = None,
+    cancel_event: Event | None = None,
 ) -> Execution[T]:
     execution_id = str(uuid4())
     recorder = TraceRecorder()
-    codec = ResultCodec(returns)
     selected_limits = limits or Limits()
+    deadline = (
+        monotonic() + selected_limits.wall_time.total_seconds()
+        if selected_limits.wall_time is not None
+        else None
+    )
+    codec = ResultCodec(returns)
     selected_tools = (*tuple(tools or ()), *resource_tools(resources or {}))
     tool_registry = _build_tool_registry(selected_tools)
     tool_call_history: list[ToolCall] = []
@@ -60,6 +70,15 @@ def run_agent(
     recorder.record("execution.started", {"task": task})
 
     while model_calls < selected_limits.model_calls:
+        _check_execution_boundary(
+            execution_id=execution_id,
+            boundary="before_model",
+            cancel_event=cancel_event,
+            deadline=deadline,
+            recorder=recorder,
+            workspace=workspace,
+            workspace_snapshot=workspace_snapshot,
+        )
         request = ModelRequest(
             execution_id=execution_id,
             task=task,
@@ -73,17 +92,35 @@ def run_agent(
         recorder.record("model.requested", {"call": model_calls + 1})
         action = model.respond(request)
         model_calls += 1
+        _check_execution_boundary(
+            execution_id=execution_id,
+            boundary="after_model",
+            cancel_event=cancel_event,
+            deadline=deadline,
+            recorder=recorder,
+            workspace=workspace,
+            workspace_snapshot=workspace_snapshot,
+        )
 
         if isinstance(action, FinalResult):
             value = codec.decode(action.value, execution_id=execution_id)
+            _check_execution_boundary(
+                execution_id=execution_id,
+                boundary="after_result_validation",
+                cancel_event=cancel_event,
+                deadline=deadline,
+                recorder=recorder,
+                workspace=workspace,
+                workspace_snapshot=workspace_snapshot,
+            )
+            artifacts = _current_artifacts(workspace, workspace_snapshot)
             recorder.record("result.produced")
+            _record_artifacts(recorder, artifacts)
             recorder.record("execution.completed")
             return Execution(
                 id=execution_id,
                 value=value,
-                artifacts=tuple(
-                    workspace.artifacts_since(workspace_snapshot) if workspace is not None else ()
-                ),
+                artifacts=artifacts,
                 trace=recorder.snapshot(),
                 usage=Usage(model_calls=model_calls, tool_calls=tool_calls),
                 status=ExecutionStatus.SUCCEEDED,
@@ -98,9 +135,13 @@ def run_agent(
         tool_call_history.append(action)
 
         if tool_calls >= selected_limits.tool_calls:
-            raise ModelLimitError(
+            _raise_limit_error(
                 f"Tool-call limit of {selected_limits.tool_calls} was exhausted",
                 execution_id=execution_id,
+                limit="tool_calls",
+                recorder=recorder,
+                workspace=workspace,
+                workspace_snapshot=workspace_snapshot,
             )
 
         tool = tool_registry.get(action.name)
@@ -116,6 +157,15 @@ def run_agent(
             )
             continue
 
+        _check_execution_boundary(
+            execution_id=execution_id,
+            boundary="before_tool",
+            cancel_event=cancel_event,
+            deadline=deadline,
+            recorder=recorder,
+            workspace=workspace,
+            workspace_snapshot=workspace_snapshot,
+        )
         recorder.record("tool.started", {"tool": action.name, "call_id": action.id})
         tool_calls += 1
 
@@ -173,10 +223,32 @@ def run_agent(
                     output=output,
                 )
             )
+        _check_execution_boundary(
+            execution_id=execution_id,
+            boundary="after_tool",
+            cancel_event=cancel_event,
+            deadline=deadline,
+            recorder=recorder,
+            workspace=workspace,
+            workspace_snapshot=workspace_snapshot,
+        )
 
-    raise ModelLimitError(
+    _check_execution_boundary(
+        execution_id=execution_id,
+        boundary="after_loop",
+        cancel_event=cancel_event,
+        deadline=deadline,
+        recorder=recorder,
+        workspace=workspace,
+        workspace_snapshot=workspace_snapshot,
+    )
+    _raise_limit_error(
         f"Model-call limit of {selected_limits.model_calls} was exhausted",
         execution_id=execution_id,
+        limit="model_calls",
+        recorder=recorder,
+        workspace=workspace,
+        workspace_snapshot=workspace_snapshot,
     )
 
 
@@ -187,3 +259,80 @@ def _build_tool_registry(tools: Sequence[Tool]) -> dict[str, Tool]:
             raise ConfigurationError(f"Duplicate tool name: {tool.spec.name}")
         registry[tool.spec.name] = tool
     return registry
+
+
+def _check_execution_boundary(
+    *,
+    execution_id: str,
+    boundary: str,
+    cancel_event: Event | None,
+    deadline: float | None,
+    recorder: TraceRecorder,
+    workspace: WorkspaceHandle | None,
+    workspace_snapshot: Mapping[str, str],
+) -> None:
+    if cancel_event is not None and cancel_event.is_set():
+        artifacts = _current_artifacts(workspace, workspace_snapshot)
+        _record_artifacts(recorder, artifacts)
+        recorder.record("execution.cancelled", {"boundary": boundary})
+        raise ExecutionCancelled(
+            "Execution was cancelled",
+            execution_id=execution_id,
+            artifacts=tuple(str(artifact.path) for artifact in artifacts),
+            trace=recorder.snapshot(),
+        )
+    if deadline is not None and monotonic() >= deadline:
+        _raise_limit_error(
+            "Wall-time limit was exhausted",
+            execution_id=execution_id,
+            limit="wall_time",
+            boundary=boundary,
+            recorder=recorder,
+            workspace=workspace,
+            workspace_snapshot=workspace_snapshot,
+        )
+
+
+def _raise_limit_error(
+    message: str,
+    *,
+    execution_id: str,
+    limit: str,
+    recorder: TraceRecorder,
+    workspace: WorkspaceHandle | None,
+    workspace_snapshot: Mapping[str, str],
+    boundary: str | None = None,
+) -> Never:
+    artifacts = _current_artifacts(workspace, workspace_snapshot)
+    _record_artifacts(recorder, artifacts)
+    data = {"limit": limit}
+    if boundary is not None:
+        data["boundary"] = boundary
+    recorder.record("execution.limit_exhausted", data)
+    raise ModelLimitError(
+        message,
+        execution_id=execution_id,
+        artifacts=tuple(str(artifact.path) for artifact in artifacts),
+        trace=recorder.snapshot(),
+    )
+
+
+def _current_artifacts(
+    workspace: WorkspaceHandle | None,
+    workspace_snapshot: Mapping[str, str],
+) -> tuple[Artifact, ...]:
+    if workspace is None:
+        return ()
+    try:
+        artifacts = workspace.artifacts_since(workspace_snapshot)
+    except Exception:
+        return ()
+    return tuple(artifacts)
+
+
+def _record_artifacts(recorder: TraceRecorder, artifacts: Sequence[Artifact]) -> None:
+    for artifact in artifacts:
+        recorder.record(
+            f"artifact.{artifact.operation}",
+            {"path": str(artifact.path)},
+        )

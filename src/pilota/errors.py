@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pilota.models import Trace
 
 
 class AgentError(Exception):
@@ -14,10 +18,12 @@ class AgentError(Exception):
         *,
         execution_id: str | None = None,
         artifacts: Sequence[str] = (),
+        trace: Trace | None = None,
     ) -> None:
         super().__init__(message)
         self.execution_id = execution_id
         self.artifacts = tuple(artifacts)
+        self.trace = trace
 
 
 class ConfigurationError(AgentError):
