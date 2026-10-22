@@ -81,7 +81,7 @@ def test_openrouter_returns_a_typed_structured_result() -> None:
         assert function["parameters"]["type"] == "object"
         assert function["parameters"]["additionalProperties"] is False
         assert payload["tool_choice"] == "required"
-        assert payload["parallel_tool_calls"] is False
+        assert "parallel_tool_calls" not in payload
 
         return httpx.Response(
             200,
@@ -202,7 +202,7 @@ def test_openrouter_round_trips_a_tool_call_and_observation() -> None:
     assert workspace.read_text("src/cache.py") == "CACHE = {}\n"
     assert requests[0]["tools"] == requests[1]["tools"]
     assert requests[0]["tool_choice"] == "required"
-    assert requests[0]["parallel_tool_calls"] is False
+    assert "parallel_tool_calls" not in requests[0]
     assert requests[1]["messages"][-2]["tool_calls"][0]["id"] == "write-cache"
     assert requests[1]["messages"][-2]["reasoning_details"] == [
         {
@@ -360,3 +360,60 @@ def test_text_fallback_receives_validation_feedback(text: str) -> None:
         assert agent("Return five", model=model, returns=int) == 5
     assert requests[1]["messages"][-1]["name"] == "final_result"
     assert "error" in json.loads(requests[1]["messages"][-1]["content"])
+
+
+@pytest.mark.parametrize("mixed", [False, True])
+def test_multi_call_parse_and_grouped_replay(mixed: bool) -> None:
+    requests: list[dict[str, Any]] = []
+    calls = [
+        {
+            "id": "write",
+            "type": "function",
+            "function": {
+                "name": "editor",
+                "arguments": json.dumps(
+                    {"operation": "write", "path": "one.txt", "content": "saved"}
+                ),
+            },
+        },
+        {
+            "id": "second",
+            "type": "function",
+            "function": {
+                "name": "final_result" if mixed else "editor",
+                "arguments": json.dumps(
+                    {"summary": "premature", "files": []}
+                    if mixed
+                    else {"operation": "read", "path": "one.txt"}
+                ),
+            },
+        },
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(json.loads(request.content))
+        if len(requests) == 1:
+            message = {"content": None, "reasoning": "batch", "tool_calls": calls}
+        else:
+            message = {"content": json.dumps({"summary": "done", "files": ["one.txt"]})}
+        return httpx.Response(200, json={"choices": [{"message": message}]})
+
+    workspace = InMemoryWorkspace()
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        result = agent(
+            "Write and read",
+            model=OpenRouterModel("example/model", api_key="test", client=client),
+            returns=Change,
+            tools=[Editor()],
+            workspace=workspace,
+        )
+    assert result.summary == "done"
+    assistant, first, second = requests[1]["messages"][2:]
+    assert assistant["tool_calls"] == calls
+    assert assistant["reasoning"] == "batch"
+    assert first["tool_call_id"] == "write"
+    assert second["tool_call_id"] == "second"
+    if mixed:
+        assert "final_result alone" in json.loads(second["content"])["error"]
+    else:
+        assert json.loads(second["content"]) == "saved"

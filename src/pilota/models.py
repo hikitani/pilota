@@ -106,7 +106,7 @@ class FinalResult:
     provider_data: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
 
-ModelAction = ToolCall | FinalResult
+ModelAction = ToolCall | FinalResult | tuple[ToolCall, ...]
 
 
 @dataclass(frozen=True)

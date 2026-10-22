@@ -126,7 +126,6 @@ class OpenRouterModel:
                 },
             ],
             "tool_choice": "required",
-            "parallel_tool_calls": False,
         }
         return payload
 
@@ -172,16 +171,20 @@ def _messages(request: ModelRequest) -> list[dict[str, Any]]:
         },
     ]
 
+    previous_batch: str | None = None
     for tool_call, observation in zip(
         request.tool_calls,
         request.observations,
         strict=True,
     ):
-        messages.extend(
-            _tool_messages(
-                tool_call, observation, wrapped_result=request.result_schema.get("type") != "object"
-            )
+        assistant, tool_message = _tool_messages(
+            tool_call, observation, wrapped_result=request.result_schema.get("type") != "object"
         )
+        batch = tool_call.provider_data.get("batch_id")
+        if batch is None or batch != previous_batch:
+            messages.append(assistant)
+        messages.append(tool_message)
+        previous_batch = batch
 
     return messages
 
@@ -200,7 +203,8 @@ def _tool_messages(
         {
             "role": "assistant",
             "content": tool_call.provider_data.get("content"),
-            "tool_calls": [
+            "tool_calls": tool_call.provider_data.get("tool_calls")
+            or [
                 {
                     "id": tool_call.id,
                     "type": "function",
@@ -328,7 +332,15 @@ def _parse_action(body: Any, *, execution_id: str, wrapped_result: bool = False)
 
     tool_calls = message.get("tool_calls")
     if tool_calls:
-        call = _parse_tool_call(tool_calls, message=message, execution_id=execution_id)
+        if not isinstance(tool_calls, list):
+            raise ProviderError("OpenRouter tool calls must be an array", execution_id=execution_id)
+        calls = tuple(
+            _parse_tool_call(raw_call, message=message, execution_id=execution_id)
+            for raw_call in tool_calls
+        )
+        if len(calls) > 1:
+            return calls
+        call = calls[0]
         if call.name == RESULT_TOOL_NAME:
             value = call.arguments
             if wrapped_result and isinstance(value, Mapping) and "value" in value:
@@ -352,18 +364,11 @@ def _parse_action(body: Any, *, execution_id: str, wrapped_result: bool = False)
 
 
 def _parse_tool_call(
-    tool_calls: Any,
+    raw_call: Any,
     *,
     message: Mapping[str, Any],
     execution_id: str,
 ) -> ToolCall:
-    if not isinstance(tool_calls, list) or len(tool_calls) != 1:
-        raise ProviderError(
-            "Pilota currently requires exactly one OpenRouter tool call per model response",
-            execution_id=execution_id,
-        )
-
-    raw_call = tool_calls[0]
     if not isinstance(raw_call, Mapping):
         raise ProviderError("OpenRouter tool call must be an object", execution_id=execution_id)
 
@@ -393,6 +398,10 @@ def _parse_tool_call(
     provider_data = {
         key: message[key] for key in ("content", "reasoning", "reasoning_details") if key in message
     }
+    raw_calls = message.get("tool_calls")
+    if isinstance(raw_calls, list) and len(raw_calls) > 1:
+        provider_data["batch_id"] = raw_calls[0]["id"]
+        provider_data["tool_calls"] = raw_calls
     return ToolCall(
         id=call_id,
         name=name,
