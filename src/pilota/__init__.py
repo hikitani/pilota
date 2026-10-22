@@ -2,6 +2,7 @@
 
 from pilota.api import agent
 from pilota.execution import run_agent
+from pilota.instructions import Instruction, InstructionFile
 from pilota.models import (
     Artifact,
     Execution,
@@ -29,6 +30,8 @@ __all__ = [
     "ExecutionStatus",
     "FinalResult",
     "InMemoryWorkspace",
+    "Instruction",
+    "InstructionFile",
     "Limits",
     "Model",
     "Resource",

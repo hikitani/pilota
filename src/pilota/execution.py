@@ -16,6 +16,7 @@ from pilota.errors import (
     PermissionDenied,
     ToolError,
 )
+from pilota.instructions import InstructionInput, render_instructions
 from pilota.models import (
     Artifact,
     Execution,
@@ -44,7 +45,7 @@ def run_agent(
     returns: type[T],
     context: Mapping[str, Any] | None = None,
     resources: Mapping[str, Resource] | None = None,
-    instructions: Sequence[str] | None = None,
+    instructions: Sequence[InstructionInput] | None = None,
     tools: Sequence[Tool] | None = None,
     workspace: WorkspaceHandle | None = None,
     limits: Limits | None = None,
@@ -59,6 +60,10 @@ def run_agent(
         else None
     )
     codec = ResultCodec(returns)
+    rendered_instructions = render_instructions(
+        tuple(instructions or ()),
+        execution_id=execution_id,
+    )
     selected_tools = (*tuple(tools or ()), *resource_tools(resources or {}))
     tool_registry = _build_tool_registry(selected_tools)
     tool_call_history: list[ToolCall] = []
@@ -83,7 +88,7 @@ def run_agent(
             execution_id=execution_id,
             task=task,
             context=context or {},
-            instructions=tuple(instructions or ()),
+            instructions=rendered_instructions,
             tools=tuple(tool.spec for tool in selected_tools),
             result_schema=codec.schema(),
             tool_calls=tuple(tool_call_history),
