@@ -26,7 +26,7 @@ Pilota converts the type passed through `returns` into a strict JSON Schema, sen
 schema as the parameters of a strict `final_result` function, and validates the final
 response before returning it to Python. Non-object result types are wrapped in a required
 `value` property and unwrapped on receipt. No `response_format` is sent. Every turn uses
-`tool_choice: "required"` and `parallel_tool_calls: false`.
+`tool_choice: "required"`. Local schema references are inlined except recursive definitions.
 
 Invalid final results (including plain-text fallback responses) are replayed as
 `final_result` tool calls with validation-error observations. `Limits.result_retries`
@@ -96,8 +96,12 @@ with OpenRouterModel(os.environ["OPENROUTER_MODEL"]) as model:
 ```
 
 The workspace, not the provider, controls which paths and operations are allowed. The
-current adapter asks OpenRouter for one tool call at a time because Pilota does not yet
-execute parallel tool batches.
+adapter accepts multiple tool calls and executes them sequentially in response order,
+checking limits and cancellation for each call. History replays the original assistant
+batch followed by its tool observations. A `final_result` mixed with other calls is rejected
+after the other calls execute: the model must submit it alone. This rejection consumes a
+result retry. Model failures retain their original exception type with trace and artifacts;
+an active cancellation or deadline takes precedence and chains the model error.
 
 See [`examples/openrouter_editor.py`](../examples/openrouter_editor.py) for a complete
 executable example.

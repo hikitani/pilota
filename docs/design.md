@@ -809,7 +809,10 @@ The runtime:
 
 `RESULT_TOOL_NAME` reserves `final_result` across providers and user/resource tools.
 OpenRouter exposes it as a strict function tool alongside ordinary tools, requires a tool
-call each turn, and disables parallel calls. It does not use `response_format`. Non-object
+call each turn. It accepts batches but executes their tools sequentially, with per-call
+boundaries and limits. The provider-neutral model action can be a tuple of `ToolCall`s;
+provider metadata preserves batch grouping on replay. Mixed final-result calls are rejected
+after executing ordinary tools and consume result retries. It does not use `response_format`. Non-object
 results use a required `value` wrapper. Final attempts retain call IDs and provider metadata
 for replay; plain text is also validated as a final attempt. Exhausted result retries raise
 `ResultContractError` carrying the execution ID, trace, and artifacts.

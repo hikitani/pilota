@@ -68,6 +68,8 @@ The adapter sends Pilota tool schemas plus a strict `final_result` function on e
 without `response_format`. The selected model must support tool calling. The name
 `final_result` is reserved for completion; invalid results receive validation feedback with
 up to `Limits(result_retries=2)` retries, also bounded by the model-call limit.
+Tool-call batches execute sequentially with per-call limits and cancellation checks.
+Final results must be submitted alone, not mixed with tool calls.
 
 See the [OpenRouter provider guide](docs/openrouter.md) for configuration, typed results, tool
 calling, failure behavior, and executable examples.

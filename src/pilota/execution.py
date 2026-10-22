@@ -77,6 +77,26 @@ def run_agent(
 
     recorder.record("execution.started", {"task": task})
 
+    def reject_result(attempt: FinalResult, error: ResultContractError) -> None:
+        nonlocal result_rejections
+        recorder.record("result.rejected", {"error": str(error)})
+        if result_rejections >= selected_limits.result_retries:
+            artifacts = _current_artifacts(workspace, workspace_snapshot)
+            _record_artifacts(recorder, artifacts)
+            recorder.record("execution.limit_exhausted", {"limit": "result_retries"})
+            raise ResultContractError(
+                str(error),
+                execution_id=execution_id,
+                artifacts=tuple(str(artifact.path) for artifact in artifacts),
+                trace=recorder.snapshot(),
+            ) from error
+        result_rejections += 1
+        call_id = attempt.id or str(uuid4())
+        tool_call_history.append(
+            ToolCall(call_id, RESULT_TOOL_NAME, attempt.value, attempt.provider_data)
+        )
+        observations.append(Observation(call_id, RESULT_TOOL_NAME, error=str(error)))
+
     while model_calls < selected_limits.model_calls:
         _check_execution_boundary(
             execution_id=execution_id,
@@ -131,27 +151,22 @@ def run_agent(
             workspace_snapshot=workspace_snapshot,
         )
 
+        if isinstance(action, tuple) and (
+            not action or not all(isinstance(call, ToolCall) for call in action)
+        ):
+            raise ConfigurationError(
+                "Model returned an invalid tool-call batch", execution_id=execution_id
+            )
+        if isinstance(action, tuple) and len(action) == 1:
+            action = action[0]
+        if isinstance(action, ToolCall) and action.name == RESULT_TOOL_NAME:
+            action = FinalResult(action.arguments, action.id, action.provider_data)
+
         if isinstance(action, FinalResult):
             try:
                 value = codec.decode(action.value, execution_id=execution_id)
             except ResultContractError as error:
-                recorder.record("result.rejected", {"error": str(error)})
-                if result_rejections >= selected_limits.result_retries:
-                    artifacts = _current_artifacts(workspace, workspace_snapshot)
-                    _record_artifacts(recorder, artifacts)
-                    recorder.record("execution.limit_exhausted", {"limit": "result_retries"})
-                    raise ResultContractError(
-                        str(error),
-                        execution_id=execution_id,
-                        artifacts=tuple(str(artifact.path) for artifact in artifacts),
-                        trace=recorder.snapshot(),
-                    ) from error
-                result_rejections += 1
-                call_id = action.id or str(uuid4())
-                tool_call_history.append(
-                    ToolCall(call_id, RESULT_TOOL_NAME, action.value, action.provider_data)
-                )
-                observations.append(Observation(call_id, RESULT_TOOL_NAME, error=str(error)))
+                reject_result(action, error)
                 continue
             _check_execution_boundary(
                 execution_id=execution_id,
@@ -175,112 +190,125 @@ def run_agent(
                 status=ExecutionStatus.SUCCEEDED,
             )
 
-        if not isinstance(action, ToolCall):
+        if not isinstance(action, (ToolCall, tuple)):
             raise ConfigurationError(
                 f"Model returned unsupported action: {type(action).__name__}",
                 execution_id=execution_id,
             )
 
-        tool_call_history.append(action)
+        batch = action if isinstance(action, tuple) else (action,)
+        for action in (
+            *[call for call in batch if call.name != RESULT_TOOL_NAME],
+            *[call for call in batch if call.name == RESULT_TOOL_NAME],
+        ):
+            if action.name == RESULT_TOOL_NAME:
+                reject_result(
+                    FinalResult(action.arguments, action.id, action.provider_data),
+                    ResultContractError(
+                        "Call final_result alone, not together with other tool calls."
+                    ),
+                )
+                continue
+            tool_call_history.append(action)
 
-        if tool_calls >= selected_limits.tool_calls:
-            _raise_limit_error(
-                f"Tool-call limit of {selected_limits.tool_calls} was exhausted",
+            if tool_calls >= selected_limits.tool_calls:
+                _raise_limit_error(
+                    f"Tool-call limit of {selected_limits.tool_calls} was exhausted",
+                    execution_id=execution_id,
+                    limit="tool_calls",
+                    recorder=recorder,
+                    workspace=workspace,
+                    workspace_snapshot=workspace_snapshot,
+                )
+
+            tool = tool_registry.get(action.name)
+            if tool is None:
+                message = f"Tool is not available: {action.name}"
+                recorder.record("tool.denied", {"tool": action.name, "reason": message})
+                observations.append(
+                    Observation(
+                        call_id=action.id,
+                        tool_name=action.name,
+                        error=message,
+                    )
+                )
+                continue
+
+            _check_execution_boundary(
                 execution_id=execution_id,
-                limit="tool_calls",
+                boundary="before_tool",
+                cancel_event=cancel_event,
+                deadline=deadline,
                 recorder=recorder,
                 workspace=workspace,
                 workspace_snapshot=workspace_snapshot,
             )
+            recorder.record("tool.started", {"tool": action.name, "call_id": action.id})
+            tool_calls += 1
 
-        tool = tool_registry.get(action.name)
-        if tool is None:
-            message = f"Tool is not available: {action.name}"
-            recorder.record("tool.denied", {"tool": action.name, "reason": message})
-            observations.append(
-                Observation(
-                    call_id=action.id,
-                    tool_name=action.name,
-                    error=message,
+            try:
+                output = tool.invoke(
+                    action.arguments,
+                    ToolContext(execution_id=execution_id, workspace=workspace),
                 )
-            )
-            continue
-
-        _check_execution_boundary(
-            execution_id=execution_id,
-            boundary="before_tool",
-            cancel_event=cancel_event,
-            deadline=deadline,
-            recorder=recorder,
-            workspace=workspace,
-            workspace_snapshot=workspace_snapshot,
-        )
-        recorder.record("tool.started", {"tool": action.name, "call_id": action.id})
-        tool_calls += 1
-
-        try:
-            output = tool.invoke(
-                action.arguments,
-                ToolContext(execution_id=execution_id, workspace=workspace),
-            )
-        except PermissionDenied as error:
-            recorder.record(
-                "tool.denied",
-                {"tool": action.name, "call_id": action.id, "error": str(error)},
-            )
-            observations.append(
-                Observation(
-                    call_id=action.id,
-                    tool_name=action.name,
-                    error=str(error),
+            except PermissionDenied as error:
+                recorder.record(
+                    "tool.denied",
+                    {"tool": action.name, "call_id": action.id, "error": str(error)},
                 )
-            )
-        except AgentError as error:
-            recorder.record(
-                "tool.failed",
-                {"tool": action.name, "call_id": action.id, "error": str(error)},
-            )
-            observations.append(
-                Observation(
-                    call_id=action.id,
-                    tool_name=action.name,
-                    error=str(error),
+                observations.append(
+                    Observation(
+                        call_id=action.id,
+                        tool_name=action.name,
+                        error=str(error),
+                    )
                 )
-            )
-        except Exception as error:
-            wrapped = ToolError(
-                f"Tool {action.name!r} failed: {error}",
+            except AgentError as error:
+                recorder.record(
+                    "tool.failed",
+                    {"tool": action.name, "call_id": action.id, "error": str(error)},
+                )
+                observations.append(
+                    Observation(
+                        call_id=action.id,
+                        tool_name=action.name,
+                        error=str(error),
+                    )
+                )
+            except Exception as error:
+                wrapped = ToolError(
+                    f"Tool {action.name!r} failed: {error}",
+                    execution_id=execution_id,
+                )
+                recorder.record(
+                    "tool.failed",
+                    {"tool": action.name, "call_id": action.id, "error": str(wrapped)},
+                )
+                observations.append(
+                    Observation(
+                        call_id=action.id,
+                        tool_name=action.name,
+                        error=str(wrapped),
+                    )
+                )
+            else:
+                recorder.record("tool.completed", {"tool": action.name, "call_id": action.id})
+                observations.append(
+                    Observation(
+                        call_id=action.id,
+                        tool_name=action.name,
+                        output=output,
+                    )
+                )
+            _check_execution_boundary(
                 execution_id=execution_id,
+                boundary="after_tool",
+                cancel_event=cancel_event,
+                deadline=deadline,
+                recorder=recorder,
+                workspace=workspace,
+                workspace_snapshot=workspace_snapshot,
             )
-            recorder.record(
-                "tool.failed",
-                {"tool": action.name, "call_id": action.id, "error": str(wrapped)},
-            )
-            observations.append(
-                Observation(
-                    call_id=action.id,
-                    tool_name=action.name,
-                    error=str(wrapped),
-                )
-            )
-        else:
-            recorder.record("tool.completed", {"tool": action.name, "call_id": action.id})
-            observations.append(
-                Observation(
-                    call_id=action.id,
-                    tool_name=action.name,
-                    output=output,
-                )
-            )
-        _check_execution_boundary(
-            execution_id=execution_id,
-            boundary="after_tool",
-            cancel_event=cancel_event,
-            deadline=deadline,
-            recorder=recorder,
-            workspace=workspace,
-            workspace_snapshot=workspace_snapshot,
-        )
 
     _check_execution_boundary(
         execution_id=execution_id,
