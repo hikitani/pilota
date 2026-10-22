@@ -5,6 +5,7 @@ The guides move from composing one typed call to operating larger agent programs
 | Guide | Main question |
 | --- | --- |
 | [Compose agents with Python](python-orchestration.md) | How do several agent calls become a workflow? |
+| [Repository review workflow](release-review-workflow.md) | What does a complete typed workflow look like? |
 | [Define typed results](typed-results.md) | How does model output become trusted Python data? |
 | [Supply context and instructions](context-and-instructions.md) | What information changes one execution? |
 | [Grant tools and resources](authority.md) | How does an agent interact with external state? |

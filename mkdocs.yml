@@ -106,6 +106,7 @@ nav:
   - Guides:
       - Overview: guides/index.md
       - Compose agents with Python: guides/python-orchestration.md
+      - Repository review workflow: guides/release-review-workflow.md
       - Define typed results: guides/typed-results.md
       - Supply context and instructions: guides/context-and-instructions.md
       - Grant tools and resources: guides/authority.md
