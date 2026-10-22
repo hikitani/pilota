@@ -70,7 +70,9 @@ The workspace must grant `execute` for the requested `cwd`. Relative `cwd` value
 resolved beneath the directory workspace and cannot escape through `..` or symlinks.
 Files created or modified by commands are included in the execution artifacts.
 
-See [`examples/openrouter_shell.py`](../examples/openrouter_shell.py) for a complete
+See
+[`examples/openrouter_shell.py`](https://github.com/hikitani/pilota/blob/main/examples/openrouter_shell.py)
+for a complete
 executable example.
 
 ## Command result

@@ -13,7 +13,7 @@ Pilota runs one bounded AI task as an ordinary typed expression. Your program ow
 workflow. The agent receives only the context, authority, and budget you grant.
 
 <div class="hero__actions" markdown>
-[Start the tutorial](getting-started/){ .md-button .md-button--primary }
+[Start the tutorial](getting-started/index.md){ .md-button .md-button--primary }
 [Understand the model](concepts/execution-boundary.md){ .md-button }
 </div>
 

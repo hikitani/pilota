@@ -56,7 +56,9 @@ with OpenRouterModel(os.environ["OPENROUTER_MODEL"]) as model:
     )
 ```
 
-See [`examples/openrouter_typed_result.py`](../examples/openrouter_typed_result.py) for a
+See
+[`examples/openrouter_typed_result.py`](https://github.com/hikitani/pilota/blob/main/examples/openrouter_typed_result.py)
+for a
 complete executable example.
 
 ## Tool calling
@@ -103,7 +105,9 @@ after the other calls execute: the model must submit it alone. This rejection co
 result retry. Model failures retain their original exception type with trace and artifacts;
 an active cancellation or deadline takes precedence and chains the model error.
 
-See [`examples/openrouter_editor.py`](../examples/openrouter_editor.py) for a complete
+See
+[`examples/openrouter_editor.py`](https://github.com/hikitani/pilota/blob/main/examples/openrouter_editor.py)
+for a complete
 executable example.
 
 ## Configuration

@@ -37,8 +37,4 @@ for event in execution.trace.events:
 Do not treat a trace as model chain-of-thought. It records observable runtime transitions and tool
 outcomes.
 
-## Definitions
-
-::: pilota.models.Trace
-
-::: pilota.models.TraceEvent
+See the generated [`Trace` and `TraceEvent` API](api.md#pilota.models.Trace).
