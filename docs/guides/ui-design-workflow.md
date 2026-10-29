@@ -6,9 +6,10 @@ DDoS protection console, but the workflow is product-agnostic.
 
 ## Keep decisions explicit
 
-The program uses typed `agent(...)` calls for product analysis, design directions, a design system,
-screen specifications, generation, and review. Ordinary Python owns the sequence, loops, files, and
-revision limit.
+The program uses typed `agent(...)` calls for product analysis, a reference-screen specification,
+design directions, a design system, final screen specifications, generation, and review. Ordinary
+Python owns the sequence, loops, files, and revision limit. Product-specific content comes from the
+replaceable `ProductBrief` and generated `ScreenSpec`, not from the workflow prompts.
 
 The person is asked for information in two ways:
 

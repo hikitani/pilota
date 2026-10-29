@@ -2,7 +2,7 @@ import importlib.util
 import sys
 from pathlib import Path
 
-from pilota import Answer
+from pilota import Answer, FinalResult, ScriptedModel
 
 
 def load_workflow():
@@ -107,3 +107,57 @@ def test_index_links_to_pages_relative_to_index(tmp_path: Path) -> None:
     workflow.write_index(index, "Prototype", [("Overview", screen)])
 
     assert 'href="screens/overview.html"' in index.read_text()
+
+
+def test_reference_page_uses_generated_spec_instead_of_default_product() -> None:
+    workflow = load_workflow()
+    brief = workflow.ProductBrief(
+        name="Parcel Desk",
+        audience="Warehouse coordinators",
+        objective="Resolve delayed orders",
+        screens=["Orders", "Carriers"],
+    )
+    analysis = workflow.ProductAnalysis(
+        primary_users=["Warehouse coordinators"],
+        critical_tasks=["Find delayed orders"],
+        constraints=["Works on shared terminals"],
+        assumptions=[],
+    )
+    direction = workflow.DesignDirection(
+        name="Clear",
+        based_on=["GOV.UK"],
+        rationale="Prioritizes legibility",
+        density="comfortable",
+        colors=["#ffffff", "#111111"],
+        spacing=[0, 8, 16],
+        radius=4,
+    )
+    model = ScriptedModel(
+        [
+            FinalResult(
+                {
+                    "name": "Orders",
+                    "purpose": "Resolve delayed orders",
+                    "key_content": ["Order status", "Carrier", "Expected arrival"],
+                    "states": ["loading", "empty", "error"],
+                }
+            ),
+            FinalResult(
+                {
+                    "title": "Orders",
+                    "css": ":root { color: #111111; background: #ffffff; }",
+                    "body_html": "<main><h1>Orders</h1></main>",
+                }
+            ),
+        ]
+    )
+
+    screen = workflow.plan_reference_screen(model, brief, analysis)
+    workflow.render_reference_page(model, brief, analysis, screen, direction)
+
+    render_request = model.requests[1]
+    assert render_request.context["screen"]["name"] == "Orders"
+    assert render_request.context["brief"]["name"] == "Parcel Desk"
+    task = render_request.task.casefold()
+    for product_term in ("waf", "ddos", "attack", "traffic", "protected domains"):
+        assert product_term not in task

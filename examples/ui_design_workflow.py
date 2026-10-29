@@ -176,7 +176,8 @@ def propose_directions(
         Ground each direction in mature public design systems such as Carbon, Primer, Material,
         Polaris, or GOV.UK. Explain why it fits the product instead of inventing a fashionable
         style. Use only six-digit hex colors, a short spacing scale in whole pixels, and one
-        radius value. Each direction must remain suitable for an operational security console.
+        radius value. Each direction must support the users, tasks, and constraints in the
+        supplied product analysis.
         """,
         model=model,
         context={"brief": asdict(brief), "analysis": asdict(analysis)},
@@ -188,25 +189,47 @@ def propose_directions(
     return result.directions
 
 
+def plan_reference_screen(
+    model: Model,
+    brief: ProductBrief,
+    analysis: ProductAnalysis,
+) -> ScreenSpec:
+    return agent(
+        """
+        Choose one screen named in the brief that best represents the product's core experience.
+        Specify its purpose, essential content, and relevant loading, empty, error, and permission
+        states. The same specification will be rendered in three visual directions, so include
+        enough representative content and interaction states for a fair comparison. Do not add
+        product facts that are absent from the brief or analysis.
+        """,
+        model=model,
+        context={"brief": asdict(brief), "analysis": asdict(analysis)},
+        limits=MODEL_LIMITS,
+        returns=ScreenSpec,
+    )
+
+
 def render_reference_page(
     model: Model,
     brief: ProductBrief,
     analysis: ProductAnalysis,
+    screen: ScreenSpec,
     direction: DesignDirection,
 ) -> PageDraft:
     return agent(
         """
-        Render the product overview screen in this design direction. Return CSS and body HTML,
-        not a complete document. Make the alternatives easy to compare: include navigation,
-        protection status, traffic and blocked-request metrics, a small attack trend, recent
-        incidents, and protected domains. The screen must look finished at 1440px and remain
-        usable at 390px. Use semantic HTML. Do not use JavaScript, external assets, gradients,
-        or colors and spacing values outside the supplied direction.
+        Render the supplied reference-screen specification in this design direction. Return CSS
+        and body HTML, not a complete document. Follow the specification exactly so the three
+        alternatives compare visual systems rather than different product content. The screen
+        must look finished at 1440px and remain usable at 390px. Use semantic HTML. Do not use
+        JavaScript, external assets, gradients, or colors and spacing values outside the supplied
+        direction.
         """,
         model=model,
         context={
             "brief": asdict(brief),
             "analysis": asdict(analysis),
+            "screen": asdict(screen),
             "direction": asdict(direction),
         },
         limits=MODEL_LIMITS,
@@ -338,11 +361,12 @@ def generate_screen(
     return agent(
         """
         Generate one polished screen from the supplied specification and design system. Return
-        CSS and body HTML, not a complete document. Use semantic HTML and realistic security
-        operations data. Use CSS custom properties for every color. Literal color values may
-        appear only in the :root declarations and must come from the supplied tokens. Every
-        margin, padding, and gap in pixels must come from the spacing scale. Do not use JavaScript,
-        external assets, gradients, inline styles, or unexplained decorative elements.
+        CSS and body HTML, not a complete document. Use semantic HTML and realistic data that is
+        consistent with the brief and analysis. Use CSS custom properties for every color. Literal
+        color values may appear only in the :root declarations and must come from the supplied
+        tokens. Every margin, padding, and gap in pixels must come from the spacing scale. Do not
+        use JavaScript, external assets, gradients, inline styles, or unexplained decorative
+        elements.
         """,
         model=model,
         context={
@@ -551,10 +575,11 @@ def design_ui(
     output.mkdir(parents=True, exist_ok=True)
     analysis = analyze_product(model, human, brief)
     directions = propose_directions(model, brief, analysis)
+    reference_screen = plan_reference_screen(model, brief, analysis)
 
     preview_paths: list[Path] = []
     for position, direction in enumerate(directions, start=1):
-        page = render_reference_page(model, brief, analysis, direction)
+        page = render_reference_page(model, brief, analysis, reference_screen, direction)
         path = output / "directions" / f"{position}-{_slug(direction.name)}.html"
         write_page(path, page)
         preview_paths.append(path)
