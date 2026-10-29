@@ -2,6 +2,7 @@
 
 from pilota.api import agent
 from pilota.execution import run_agent
+from pilota.human import Answer, Human, NoHuman, Question, TerminalHuman
 from pilota.instructions import Instruction, InstructionFile
 from pilota.models import (
     RESULT_TOOL_NAME,
@@ -17,29 +18,35 @@ from pilota.models import (
 )
 from pilota.providers import Model, ScriptedModel
 from pilota.resources import DirectoryResource, Resource, ResourceOperation
-from pilota.tools import Editor, Shell
+from pilota.tools import AskHuman, Editor, Shell
 from pilota.workspaces import DirectoryWorkspace, InMemoryWorkspace
 
 __version__ = "0.0.1"
 
 __all__ = [
     "RESULT_TOOL_NAME",
+    "Answer",
     "Artifact",
+    "AskHuman",
     "DirectoryResource",
     "DirectoryWorkspace",
     "Editor",
     "Execution",
     "ExecutionStatus",
     "FinalResult",
+    "Human",
     "InMemoryWorkspace",
     "Instruction",
     "InstructionFile",
     "Limits",
     "Model",
+    "NoHuman",
+    "Question",
     "Resource",
     "ResourceOperation",
     "ScriptedModel",
     "Shell",
+    "TerminalHuman",
     "ToolCall",
     "Trace",
     "TraceEvent",

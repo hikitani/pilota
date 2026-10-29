@@ -110,6 +110,7 @@ nav:
       - Define typed results: guides/typed-results.md
       - Supply context and instructions: guides/context-and-instructions.md
       - Grant tools and resources: guides/authority.md
+      - Ask a human: guides/human-input.md
       - Work with files and commands: guides/workspaces.md
       - Bound and cancel execution: guides/limits-and-cancellation.md
       - Inspect executions and failures: guides/executions-and-errors.md

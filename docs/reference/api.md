@@ -49,6 +49,18 @@ part.
 
 ::: pilota.instructions.InstructionFile
 
+## Human input
+
+::: pilota.human.Question
+
+::: pilota.human.Answer
+
+::: pilota.human.Human
+
+::: pilota.human.TerminalHuman
+
+::: pilota.human.NoHuman
+
 ## Resources
 
 ::: pilota.resources.Resource
@@ -66,6 +78,8 @@ part.
 ::: pilota.tools.WorkspaceHandle
 
 ::: pilota.tools.ProcessWorkspaceHandle
+
+::: pilota.tools.AskHuman
 
 ::: pilota.tools.Editor
 
