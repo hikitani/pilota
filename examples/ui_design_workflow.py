@@ -601,7 +601,11 @@ def design_ui(
         )
 
     index = output / "index.html"
-    write_index(index, f"{brief.name} prototype", [(screen.name, screen.path) for screen in generated])
+    write_index(
+        index,
+        f"{brief.name} prototype",
+        [(screen.name, screen.path) for screen in generated],
+    )
     (output / "design-system.json").write_text(
         json.dumps(asdict(design_system), indent=2),
         encoding="utf-8",
@@ -646,7 +650,9 @@ def main() -> None:
     print(f"Chosen direction: {result.chosen_direction.name}")
     print(f"Open: {result.index.resolve()}")
     for screen in result.screens:
-        status = "passed" if not screen.deterministic_issues and screen.review.ok else "needs review"
+        status = (
+            "passed" if not screen.deterministic_issues and screen.review.ok else "needs review"
+        )
         print(f"- {screen.name}: {status}")
 
 
