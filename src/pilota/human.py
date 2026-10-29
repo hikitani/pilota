@@ -91,12 +91,8 @@ class TerminalHuman:
                 character.isdecimal() or character.isspace() or character == ","
                 for character in value
             ):
-                tokens = _number_tokens(value)
-                if (
-                    not tokens
-                    or any(not token.isdecimal() for token in tokens)
-                    or (not question.multiple and len(tokens) != 1)
-                ):
+                tokens = value.replace(",", " ").split()
+                if not tokens or (not question.multiple and len(tokens) != 1):
                     output_stream.write("Please enter valid option numbers.\n")
                     continue
                 indexes = [int(token) for token in tokens]
@@ -119,21 +115,3 @@ class NoHuman:
     def ask(self, question: Question) -> Answer:
         del question
         return Answer(delegated=True)
-
-
-def _number_tokens(value: str) -> list[str]:
-    tokens: list[str] = []
-    current = ""
-    for character in value:
-        if character.isdecimal():
-            current += character
-        elif current:
-            tokens.append(current)
-            current = ""
-        elif character == ",":
-            tokens.append("")
-    if current:
-        tokens.append(current)
-    elif value.endswith(","):
-        tokens.append("")
-    return tokens
