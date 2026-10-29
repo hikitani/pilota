@@ -11,7 +11,7 @@ from typing import Any
 import httpx
 from pydantic_core import to_jsonable_python
 
-from pilota.errors import ConfigurationError, ProviderError
+from pilota.errors import ConfigurationError, MalformedToolCall, ProviderError
 from pilota.models import (
     RESULT_TOOL_NAME,
     FinalResult,
@@ -35,6 +35,7 @@ class OpenRouterModel:
         api_key: str | None = None,
         base_url: str = DEFAULT_BASE_URL,
         timeout: float = 60.0,
+        max_tokens: int | None = None,
         http_referer: str | None = None,
         app_title: str | None = "Pilota",
         client: httpx.Client | None = None,
@@ -47,7 +48,11 @@ class OpenRouterModel:
         if not model.strip():
             raise ConfigurationError("OpenRouter model must not be empty")
 
+        if max_tokens is not None and max_tokens < 1:
+            raise ConfigurationError("OpenRouter max_tokens must be positive")
+
         self.model = model
+        self.max_tokens = max_tokens
         self._api_key = selected_api_key
         self._base_url = base_url.rstrip("/")
         self._http_referer = http_referer
@@ -127,6 +132,8 @@ class OpenRouterModel:
             ],
             "tool_choice": "required",
         }
+        if self.max_tokens is not None:
+            payload["max_tokens"] = self.max_tokens
         return payload
 
 
@@ -335,7 +342,12 @@ def _parse_action(body: Any, *, execution_id: str, wrapped_result: bool = False)
         if not isinstance(tool_calls, list):
             raise ProviderError("OpenRouter tool calls must be an array", execution_id=execution_id)
         calls = tuple(
-            _parse_tool_call(raw_call, message=message, execution_id=execution_id)
+            _parse_tool_call(
+                raw_call,
+                message=message,
+                execution_id=execution_id,
+                truncated=first_choice.get("finish_reason") == "length",
+            )
             for raw_call in tool_calls
         )
         if len(calls) > 1:
@@ -368,6 +380,7 @@ def _parse_tool_call(
     *,
     message: Mapping[str, Any],
     execution_id: str,
+    truncated: bool = False,
 ) -> ToolCall:
     if not isinstance(raw_call, Mapping):
         raise ProviderError("OpenRouter tool call must be an object", execution_id=execution_id)
@@ -385,13 +398,23 @@ def _parse_tool_call(
     try:
         arguments = json.loads(raw_arguments)
     except json.JSONDecodeError as error:
-        raise ProviderError(
-            "OpenRouter tool arguments are not valid JSON",
+        reason = (
+            "were cut off by the output token limit"
+            if truncated
+            else f"are not valid JSON ({error})"
+        )
+        raise MalformedToolCall(
+            f"The {name} arguments {reason}. Call {name} again with complete JSON"
+            + (", keeping it shorter." if truncated else "."),
+            call_id=call_id,
+            tool_name=name,
             execution_id=execution_id,
         ) from error
     if not isinstance(arguments, Mapping):
-        raise ProviderError(
-            "OpenRouter tool arguments must be a JSON object",
+        raise MalformedToolCall(
+            f"The {name} arguments must be a JSON object.",
+            call_id=call_id,
+            tool_name=name,
             execution_id=execution_id,
         )
 

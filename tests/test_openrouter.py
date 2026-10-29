@@ -6,7 +6,7 @@ from typing import Any
 import httpx
 import pytest
 
-from pilota import Editor, InMemoryWorkspace, agent
+from pilota import Editor, InMemoryWorkspace, agent, run_agent
 from pilota.errors import ConfigurationError, ProviderError
 from pilota.models import ToolSpec
 from pilota.providers.openrouter import OpenRouterModel, _result_parameters, _tool_payload
@@ -238,8 +238,53 @@ def test_openrouter_reports_provider_errors_without_credentials() -> None:
     assert "secret-value" not in str(raised.value)
 
 
-def test_openrouter_rejects_invalid_tool_arguments() -> None:
+def test_openrouter_returns_truncated_result_arguments_as_feedback() -> None:
+    payloads: list[dict[str, Any]] = []
+
     def handler(request: httpx.Request) -> httpx.Response:
+        payloads.append(json.loads(request.content))
+        arguments = '{"value": "cut' if len(payloads) == 1 else '{"value": "done"}'
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "finish_reason": "length" if len(payloads) == 1 else "tool_calls",
+                        "message": {
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": [
+                                {
+                                    "id": f"call-{len(payloads)}",
+                                    "type": "function",
+                                    "function": {"name": "final_result", "arguments": arguments},
+                                }
+                            ],
+                        },
+                    }
+                ]
+            },
+            request=request,
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        model = OpenRouterModel("example/model", api_key="test-key", max_tokens=512, client=client)
+        assert agent("Return a string", model=model, returns=str) == "done"
+
+    assert payloads[0]["max_tokens"] == 512
+    replayed = payloads[1]["messages"][-2:]
+    assert "cut" not in replayed[0]["tool_calls"][0]["function"]["arguments"]
+    assert "cut off by the output token limit" in replayed[1]["content"]
+
+
+def test_openrouter_returns_invalid_tool_arguments_as_feedback() -> None:
+    payloads: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payloads.append(json.loads(request.content))
+        name, arguments = (
+            ("editor", "not-json") if len(payloads) == 1 else ("final_result", '{"value": "ok"}')
+        )
         return httpx.Response(
             200,
             json={
@@ -250,12 +295,9 @@ def test_openrouter_rejects_invalid_tool_arguments() -> None:
                             "content": None,
                             "tool_calls": [
                                 {
-                                    "id": "broken",
+                                    "id": f"call-{len(payloads)}",
                                     "type": "function",
-                                    "function": {
-                                        "name": "editor",
-                                        "arguments": "not-json",
-                                    },
+                                    "function": {"name": name, "arguments": arguments},
                                 }
                             ],
                         }
@@ -267,15 +309,17 @@ def test_openrouter_rejects_invalid_tool_arguments() -> None:
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
         model = OpenRouterModel("example/model", api_key="test-key", client=client)
+        execution = run_agent(
+            "Create a file",
+            model=model,
+            tools=[Editor()],
+            workspace=InMemoryWorkspace(),
+            returns=str,
+        )
 
-        with pytest.raises(ProviderError, match="tool arguments are not valid JSON"):
-            agent(
-                "Create a file",
-                model=model,
-                tools=[Editor()],
-                workspace=InMemoryWorkspace(),
-                returns=str,
-            )
+    assert execution.value == "ok"
+    assert execution.usage.tool_calls == 0
+    assert "editor arguments are not valid JSON" in payloads[1]["messages"][-1]["content"]
 
 
 def test_openrouter_requires_an_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
