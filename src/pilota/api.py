@@ -12,6 +12,7 @@ from pilota.models import Limits
 from pilota.providers import Model
 from pilota.resources import Resource
 from pilota.tools import Tool, WorkspaceHandle
+from pilota.tracing import ProgressCallback
 
 T = TypeVar("T")
 
@@ -28,6 +29,7 @@ def agent(
     workspace: WorkspaceHandle | None = None,
     limits: Limits | None = None,
     cancel_event: Event | None = None,
+    progress: ProgressCallback | None = None,
 ) -> T:
     return run_agent(
         task,
@@ -40,4 +42,5 @@ def agent(
         workspace=workspace,
         limits=limits,
         cancel_event=cancel_event,
+        progress=progress,
     ).value

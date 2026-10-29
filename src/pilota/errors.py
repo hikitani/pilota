@@ -34,6 +34,25 @@ class ProviderError(AgentError):
     """A model provider failed."""
 
 
+class MalformedToolCall(ProviderError):
+    """The model called a tool with arguments that could not be decoded.
+
+    The runtime returns the message to the model as feedback for that call.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        call_id: str,
+        tool_name: str,
+        execution_id: str | None = None,
+    ) -> None:
+        super().__init__(message, execution_id=execution_id)
+        self.call_id = call_id
+        self.tool_name = tool_name
+
+
 class ModelLimitError(AgentError):
     """An execution exhausted a model or tool-call limit."""
 

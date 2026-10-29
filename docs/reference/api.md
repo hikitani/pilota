@@ -35,6 +35,10 @@ part.
 
 ::: pilota.models.FinalResult
 
+## Progress
+
+::: pilota.progress.TerminalProgress
+
 ## Providers
 
 ::: pilota.providers.Model

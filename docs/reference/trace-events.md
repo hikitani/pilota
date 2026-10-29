@@ -6,6 +6,7 @@ Traces are ordered runtime facts. Event data is intentionally small and provider
 | --- | --- | --- |
 | `execution.started` | `task` | Configuration completed and execution began |
 | `model.requested` | `call` | A provider call is about to run |
+| `model.responded` | `call` | The provider returned an action |
 | `model.failed` | `error` | The provider raised an `AgentError` |
 | `tool.started` | `tool`, `call_id` | Tool invocation began |
 | `tool.completed` | `tool`, `call_id` | Tool invocation returned successfully |

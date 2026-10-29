@@ -12,6 +12,7 @@ from pilota.errors import (
     AgentError,
     ConfigurationError,
     ExecutionCancelled,
+    MalformedToolCall,
     ModelLimitError,
     PermissionDenied,
     ResultContractError,
@@ -35,7 +36,7 @@ from pilota.resources import Resource
 from pilota.resources.base import resource_tools
 from pilota.results import ResultCodec
 from pilota.tools import Tool, ToolContext, WorkspaceHandle
-from pilota.tracing import TraceRecorder
+from pilota.tracing import ProgressCallback, TraceRecorder
 
 T = TypeVar("T")
 
@@ -52,9 +53,10 @@ def run_agent(
     workspace: WorkspaceHandle | None = None,
     limits: Limits | None = None,
     cancel_event: Event | None = None,
+    progress: ProgressCallback | None = None,
 ) -> Execution[T]:
     execution_id = str(uuid4())
-    recorder = TraceRecorder()
+    recorder = TraceRecorder(progress)
     selected_limits = limits or Limits()
     deadline = (
         monotonic() + selected_limits.wall_time.total_seconds()
@@ -120,6 +122,27 @@ def run_agent(
         recorder.record("model.requested", {"call": model_calls + 1})
         try:
             action = model.respond(request)
+        except MalformedToolCall as error:
+            model_calls += 1
+            _check_execution_boundary(
+                execution_id=execution_id,
+                boundary="after_model",
+                cancel_event=cancel_event,
+                deadline=deadline,
+                recorder=recorder,
+                workspace=workspace,
+                workspace_snapshot=workspace_snapshot,
+            )
+            if error.tool_name == RESULT_TOOL_NAME:
+                reject_result(FinalResult({}, error.call_id), ResultContractError(str(error)))
+            else:
+                recorder.record(
+                    "tool.failed",
+                    {"tool": error.tool_name, "call_id": error.call_id, "error": str(error)},
+                )
+                tool_call_history.append(ToolCall(error.call_id, error.tool_name, {}))
+                observations.append(Observation(error.call_id, error.tool_name, error=str(error)))
+            continue
         except AgentError as error:
             recorder.record("model.failed", {"error": str(error)})
             try:
@@ -140,6 +163,7 @@ def run_agent(
             error.artifacts = tuple(str(artifact.path) for artifact in artifacts)
             error.trace = recorder.snapshot()
             raise
+        recorder.record("model.responded", {"call": model_calls + 1})
         model_calls += 1
         _check_execution_boundary(
             execution_id=execution_id,

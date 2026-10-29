@@ -117,6 +117,7 @@ OpenRouterModel(
     "provider/model",
     api_key=None,
     timeout=60.0,
+    max_tokens=None,
     http_referer="https://example.com",
     app_title="My application",
 )
@@ -124,6 +125,7 @@ OpenRouterModel(
 
 - `api_key` overrides `OPENROUTER_API_KEY`.
 - `timeout` configures the internally managed HTTP client.
+- `max_tokens` caps each model response; raise it when results are large, such as full pages.
 - `http_referer` and `app_title` set OpenRouter attribution headers.
 - `base_url` can point at a compatible proxy or test server.
 - `client` accepts a caller-managed `httpx.Client`.
@@ -136,10 +138,14 @@ caller-supplied client remains owned by the caller.
 Pilota keeps configuration, provider, tool, and result-contract failures distinct:
 
 - `ConfigurationError`: missing API key, empty model name, or inconsistent history;
-- `ProviderError`: transport, HTTP, malformed response, or invalid provider JSON;
+- `ProviderError`: transport, HTTP, or malformed response;
 - `ToolError`: a selected tool failed;
 - `PermissionDenied`: a tool requested an unauthorized workspace operation;
 - `ResultContractError`: the final value did not satisfy `returns`.
+
+Tool-call arguments that are not valid JSON, for example because the response hit the
+output token limit, do not fail the execution. The model receives the error for that call
+and tries again; a broken `final_result` consumes `Limits.result_retries`.
 
 Provider errors include the execution ID when one exists. Credentials are never included
 in request failure messages.

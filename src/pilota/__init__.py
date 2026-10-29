@@ -16,9 +16,11 @@ from pilota.models import (
     TraceEvent,
     Usage,
 )
+from pilota.progress import TerminalProgress
 from pilota.providers import Model, ScriptedModel
 from pilota.resources import DirectoryResource, Resource, ResourceOperation
 from pilota.tools import AskHuman, Editor, Shell
+from pilota.tracing import ProgressCallback
 from pilota.workspaces import DirectoryWorkspace, InMemoryWorkspace
 
 __version__ = "0.0.1"
@@ -41,12 +43,14 @@ __all__ = [
     "Limits",
     "Model",
     "NoHuman",
+    "ProgressCallback",
     "Question",
     "Resource",
     "ResourceOperation",
     "ScriptedModel",
     "Shell",
     "TerminalHuman",
+    "TerminalProgress",
     "ToolCall",
     "Trace",
     "TraceEvent",
