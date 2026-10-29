@@ -249,7 +249,11 @@ def run_agent(
             try:
                 output = tool.invoke(
                     action.arguments,
-                    ToolContext(execution_id=execution_id, workspace=workspace),
+                    ToolContext(
+                        execution_id=execution_id,
+                        workspace=workspace,
+                        record=recorder.record,
+                    ),
                 )
             except PermissionDenied as error:
                 recorder.record(
