@@ -11,7 +11,18 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Literal
 
-from pilota import Answer, AskHuman, Human, Limits, NoHuman, Question, TerminalHuman, agent
+from pilota import (
+    Answer,
+    AskHuman,
+    Human,
+    Limits,
+    NoHuman,
+    ProgressCallback,
+    Question,
+    TerminalHuman,
+    TerminalProgress,
+    agent,
+)
 from pilota.providers import Model
 from pilota.providers.openrouter import OpenRouterModel
 
@@ -148,7 +159,12 @@ SPACING_VALUE = re.compile(
 )
 
 
-def analyze_product(model: Model, human: Human, brief: ProductBrief) -> ProductAnalysis:
+def analyze_product(
+    model: Model,
+    human: Human,
+    brief: ProductBrief,
+    progress: ProgressCallback | None = None,
+) -> ProductAnalysis:
     return agent(
         """
         Analyze this product before any visual design work. Ask at most three questions only
@@ -162,6 +178,7 @@ def analyze_product(model: Model, human: Human, brief: ProductBrief) -> ProductA
         tools=[AskHuman(human, max_questions=3)],
         limits=MODEL_LIMITS,
         returns=ProductAnalysis,
+        progress=progress,
     )
 
 
@@ -169,6 +186,7 @@ def propose_directions(
     model: Model,
     brief: ProductBrief,
     analysis: ProductAnalysis,
+    progress: ProgressCallback | None = None,
 ) -> list[DesignDirection]:
     result = agent(
         """
@@ -183,6 +201,7 @@ def propose_directions(
         context={"brief": asdict(brief), "analysis": asdict(analysis)},
         limits=MODEL_LIMITS,
         returns=DesignDirections,
+        progress=progress,
     )
     if len(result.directions) != 3:
         raise ValueError("The model must return exactly three design directions")
@@ -193,6 +212,7 @@ def plan_reference_screen(
     model: Model,
     brief: ProductBrief,
     analysis: ProductAnalysis,
+    progress: ProgressCallback | None = None,
 ) -> ScreenSpec:
     return agent(
         """
@@ -206,6 +226,7 @@ def plan_reference_screen(
         context={"brief": asdict(brief), "analysis": asdict(analysis)},
         limits=MODEL_LIMITS,
         returns=ScreenSpec,
+        progress=progress,
     )
 
 
@@ -215,6 +236,7 @@ def render_reference_page(
     analysis: ProductAnalysis,
     screen: ScreenSpec,
     direction: DesignDirection,
+    progress: ProgressCallback | None = None,
 ) -> PageDraft:
     return agent(
         """
@@ -234,6 +256,7 @@ def render_reference_page(
         },
         limits=MODEL_LIMITS,
         returns=PageDraft,
+        progress=progress,
     )
 
 
@@ -244,6 +267,7 @@ def choose_direction(
     analysis: ProductAnalysis,
     directions: list[DesignDirection],
     previews: list[Path],
+    progress: ProgressCallback | None = None,
 ) -> DesignDirection:
     answer = human.ask(
         Question(
@@ -269,6 +293,7 @@ def choose_direction(
             "directions": [asdict(direction) for direction in directions],
         },
         returns=DirectionChoice,
+        progress=progress,
     )
     return _direction_named(choice.name, directions)
 
@@ -302,6 +327,7 @@ def build_design_system(
     analysis: ProductAnalysis,
     chosen: DesignDirection,
     rejected: list[DesignDirection],
+    progress: ProgressCallback | None = None,
 ) -> DesignSystem:
     return agent(
         """
@@ -320,6 +346,7 @@ def build_design_system(
         },
         limits=MODEL_LIMITS,
         returns=DesignSystem,
+        progress=progress,
     )
 
 
@@ -328,6 +355,7 @@ def plan_screens(
     brief: ProductBrief,
     analysis: ProductAnalysis,
     design_system: DesignSystem,
+    progress: ProgressCallback | None = None,
 ) -> list[ScreenSpec]:
     result = agent(
         """
@@ -343,6 +371,7 @@ def plan_screens(
         },
         limits=MODEL_LIMITS,
         returns=ScreenSpecs,
+        progress=progress,
     )
     expected = {name.casefold() for name in brief.screens}
     actual = {screen.name.casefold() for screen in result.screens}
@@ -357,6 +386,7 @@ def generate_screen(
     analysis: ProductAnalysis,
     design_system: DesignSystem,
     spec: ScreenSpec,
+    progress: ProgressCallback | None = None,
 ) -> PageDraft:
     return agent(
         """
@@ -377,6 +407,7 @@ def generate_screen(
         },
         limits=MODEL_LIMITS,
         returns=PageDraft,
+        progress=progress,
     )
 
 
@@ -387,6 +418,7 @@ def review_screen(
     spec: ScreenSpec,
     page: PageDraft,
     deterministic_issues: list[str],
+    progress: ProgressCallback | None = None,
 ) -> UsabilityReview:
     return agent(
         """
@@ -405,6 +437,7 @@ def review_screen(
         },
         limits=MODEL_LIMITS,
         returns=UsabilityReview,
+        progress=progress,
     )
 
 
@@ -416,6 +449,7 @@ def revise_screen(
     page: PageDraft,
     deterministic_issues: list[str],
     review: UsabilityReview,
+    progress: ProgressCallback | None = None,
 ) -> PageDraft:
     return agent(
         """
@@ -434,6 +468,7 @@ def revise_screen(
         },
         limits=MODEL_LIMITS,
         returns=PageDraft,
+        progress=progress,
     )
 
 
@@ -571,15 +606,16 @@ def design_ui(
     brief: ProductBrief = DEFAULT_BRIEF,
     *,
     max_revisions: int = 2,
+    progress: ProgressCallback | None = None,
 ) -> WorkflowResult:
     output.mkdir(parents=True, exist_ok=True)
-    analysis = analyze_product(model, human, brief)
-    directions = propose_directions(model, brief, analysis)
-    reference_screen = plan_reference_screen(model, brief, analysis)
+    analysis = analyze_product(model, human, brief, progress)
+    directions = propose_directions(model, brief, analysis, progress)
+    reference_screen = plan_reference_screen(model, brief, analysis, progress)
 
     preview_paths: list[Path] = []
     for position, direction in enumerate(directions, start=1):
-        page = render_reference_page(model, brief, analysis, reference_screen, direction)
+        page = render_reference_page(model, brief, analysis, reference_screen, direction, progress)
         path = output / "directions" / f"{position}-{_slug(direction.name)}.html"
         write_page(path, page)
         preview_paths.append(path)
@@ -589,19 +625,19 @@ def design_ui(
         [(direction.name, path) for direction, path in zip(directions, preview_paths, strict=True)],
     )
 
-    chosen = choose_direction(model, human, brief, analysis, directions, preview_paths)
+    chosen = choose_direction(model, human, brief, analysis, directions, preview_paths, progress)
     rejected = [direction for direction in directions if direction != chosen]
-    design_system = build_design_system(model, brief, analysis, chosen, rejected)
-    specs = plan_screens(model, brief, analysis, design_system)
+    design_system = build_design_system(model, brief, analysis, chosen, rejected, progress)
+    specs = plan_screens(model, brief, analysis, design_system, progress)
 
     generated: list[GeneratedScreen] = []
     for spec in specs:
-        page = generate_screen(model, brief, analysis, design_system, spec)
+        page = generate_screen(model, brief, analysis, design_system, spec, progress)
         issues: list[str] = []
         review = UsabilityReview(ok=False, issues=[])
         for attempt in range(max_revisions + 1):
             issues = deterministic_issues(page, design_system)
-            review = review_screen(model, analysis, design_system, spec, page, issues)
+            review = review_screen(model, analysis, design_system, spec, page, issues, progress)
             if not issues and review.ok:
                 break
             if attempt < max_revisions:
@@ -613,6 +649,7 @@ def design_ui(
                     page,
                     issues,
                     review,
+                    progress,
                 )
         path = output / "screens" / f"{_slug(spec.name)}.html"
         write_page(path, page)
@@ -670,6 +707,7 @@ def main() -> None:
             human,
             args.output,
             max_revisions=args.max_revisions,
+            progress=TerminalProgress(),
         )
 
     print(f"Chosen direction: {result.chosen_direction.name}")

@@ -35,7 +35,7 @@ from pilota.resources import Resource
 from pilota.resources.base import resource_tools
 from pilota.results import ResultCodec
 from pilota.tools import Tool, ToolContext, WorkspaceHandle
-from pilota.tracing import TraceRecorder
+from pilota.tracing import ProgressCallback, TraceRecorder
 
 T = TypeVar("T")
 
@@ -52,9 +52,10 @@ def run_agent(
     workspace: WorkspaceHandle | None = None,
     limits: Limits | None = None,
     cancel_event: Event | None = None,
+    progress: ProgressCallback | None = None,
 ) -> Execution[T]:
     execution_id = str(uuid4())
-    recorder = TraceRecorder()
+    recorder = TraceRecorder(progress)
     selected_limits = limits or Limits()
     deadline = (
         monotonic() + selected_limits.wall_time.total_seconds()
@@ -140,6 +141,7 @@ def run_agent(
             error.artifacts = tuple(str(artifact.path) for artifact in artifacts)
             error.trace = recorder.snapshot()
             raise
+        recorder.record("model.responded", {"call": model_calls + 1})
         model_calls += 1
         _check_execution_boundary(
             execution_id=execution_id,

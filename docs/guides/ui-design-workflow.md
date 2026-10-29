@@ -36,6 +36,26 @@ The deterministic pass rejects colors outside the palette, spacing outside the s
 JavaScript, and WCAG AA contrast failures. The agent review checks product tasks, screen requirements,
 design principles, and usability heuristics. The revision loop is bounded by ordinary Python.
 
+## See live progress
+
+The executable example passes one `TerminalProgress` instance to every agent call. In a terminal it
+keeps a compact colored spinner on one line with the current model or tool call and elapsed time.
+Redirected output and CI logs receive plain `[pilota]` lines instead of terminal control codes.
+
+The renderer consumes the same `TraceEvent` values retained on `Execution.trace`, so applications
+can supply their own callback without adopting a second event system:
+
+```python
+from pilota import TerminalProgress, agent
+
+result = agent(
+    "Analyze the brief",
+    model=model,
+    returns=Analysis,
+    progress=TerminalProgress(),
+)
+```
+
 ## Run it
 
 ```bash

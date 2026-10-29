@@ -91,5 +91,16 @@ for event in execution.trace.events:
 
 Trace data records runtime events, not hidden model reasoning.
 
+To consume those events while an execution is running, pass a callback through `progress`:
+
+```python
+events = []
+value = agent("Analyze the change", model=model, returns=Analysis, progress=events.append)
+```
+
+`TerminalProgress()` is a ready-made callback for interactive terminals and plain CI logs. A model
+request is still one blocking provider call; the renderer shows activity and elapsed time while it
+waits, but token-level updates require provider streaming support.
+
 See [Trace events](../reference/trace-events.md) for the emitted event kinds and
 [Errors](../reference/errors.md) for the full hierarchy.
