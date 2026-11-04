@@ -152,7 +152,10 @@ def _journal_answer(
     record: Callable[[str, Mapping[str, Any]], None] | None = None,
 ) -> Answer:
     journal = active_journal()
-    if journal is None or question.sensitive or getattr(_journal_state, "bypass", False):
+    if journal is None or getattr(_journal_state, "bypass", False):
+        return _checked_answer(ask_live())
+    if question.sensitive:
+        journal.mark_sensitive()
         return _checked_answer(ask_live())
 
     question_fingerprint = fingerprint(

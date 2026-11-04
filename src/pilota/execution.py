@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from hashlib import sha256
 from pathlib import Path
 from threading import Event
 from time import monotonic
@@ -84,6 +85,7 @@ def run_agent(
         {
             "task": task,
             "context": context or {},
+            "workspace": _workspace_identity(workspace),
             "instructions": selected_instructions,
             "tools": [
                 {
@@ -98,7 +100,12 @@ def run_agent(
             "model": _model_identity(model),
         }
     )
+    _raise_if_replay_cancelled(task, cancel_event, workspace, progress)
     call = journal.begin("agent", call_fingerprint)
+    if call.replayed is not None and not _workspace_matches(
+        workspace, call.replayed.get("workspace")
+    ):
+        call = journal.invalidate(call)
     if call.replayed is not None:
         recorder = TraceRecorder(progress)
         recorder.record("execution.started", {"task": task})
@@ -143,6 +150,7 @@ def run_agent(
                 {"path": str(artifact.path), "operation": artifact.operation}
                 for artifact in execution.artifacts
             ],
+            "workspace": _workspace_digest(workspace),
         },
     )
     return execution
@@ -566,6 +574,29 @@ def _record_artifacts(recorder: TraceRecorder, artifacts: Sequence[Artifact]) ->
         )
 
 
+def _raise_if_replay_cancelled(
+    task: str,
+    cancel_event: Event | None,
+    workspace: WorkspaceHandle | None,
+    progress: ProgressCallback | None,
+) -> None:
+    if cancel_event is None or not cancel_event.is_set():
+        return
+    execution_id = str(uuid4())
+    recorder = TraceRecorder(progress)
+    workspace_snapshot = workspace.snapshot() if workspace is not None else {}
+    recorder.record("execution.started", {"task": task})
+    artifacts = _current_artifacts(workspace, workspace_snapshot)
+    _record_artifacts(recorder, artifacts)
+    recorder.record("execution.cancelled", {"boundary": "before_model"})
+    raise ExecutionCancelled(
+        "Execution was cancelled",
+        execution_id=execution_id,
+        artifacts=tuple(str(artifact.path) for artifact in artifacts),
+        trace=recorder.snapshot(),
+    )
+
+
 def _model_identity(model: Model) -> Mapping[str, Any]:
     custom = getattr(model, "journal_config", None)
     if callable(custom):
@@ -581,6 +612,42 @@ def _model_identity(model: Model) -> Mapping[str, Any]:
     return {
         "type": _qualified_name(model),
         "config": public,
+    }
+
+
+def _workspace_identity(workspace: WorkspaceHandle | None) -> Mapping[str, Any] | None:
+    if workspace is None:
+        return None
+    custom = getattr(workspace, "journal_config", None)
+    return {
+        "type": _qualified_name(workspace),
+        "config": custom() if callable(custom) else {},
+    }
+
+
+def _workspace_digest(workspace: WorkspaceHandle | None) -> Mapping[str, str] | None:
+    if workspace is None:
+        return None
+    try:
+        snapshot = workspace.snapshot()
+    except Exception:
+        return None
+    return {
+        str(path): sha256(str(value).encode("utf-8")).hexdigest()
+        for path, value in sorted(snapshot.items())
+    }
+
+
+def _workspace_matches(
+    workspace: WorkspaceHandle | None,
+    expected: object,
+) -> bool:
+    if workspace is None:
+        return True
+    if not isinstance(expected, Mapping):
+        return False
+    return _workspace_digest(workspace) == {
+        str(path): value for path, value in expected.items() if isinstance(path, str)
     }
 
 

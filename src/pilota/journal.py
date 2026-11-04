@@ -130,11 +130,17 @@ class _JsonlStore:
             ensure_ascii=False,
             separators=(",", ":"),
             sort_keys=True,
-        )
+        ).encode("utf-8")
         try:
-            with self.path.open("a", encoding="utf-8") as stream:
-                stream.write(line)
-                stream.write("\n")
+            with self.path.open("a+b") as stream:
+                stream.seek(0, os.SEEK_END)
+                if stream.tell() > 0:
+                    stream.seek(-1, os.SEEK_END)
+                    if stream.read(1) != b"\n":
+                        stream.seek(0, os.SEEK_END)
+                        stream.write(b"\n")
+                stream.seek(0, os.SEEK_END)
+                stream.write(line + b"\n")
                 stream.flush()
                 os.fsync(stream.fileno())
         except OSError as error:
@@ -201,6 +207,7 @@ class Journal:
         self._matched: list[_Record] = []
         self._completed: dict[int, _Record] = {}
         self._skipped_parents: set[int] = set()
+        self._sensitive_sequences: set[int] = set()
         self._replayed_any = False
         self._reported_replay_end = False
         self._entered = False
@@ -224,6 +231,7 @@ class Journal:
         self._matched = []
         self._completed = {}
         self._skipped_parents = set()
+        self._sensitive_sequences = set()
         self._replayed_any = False
         self._reported_replay_end = False
         self._entered = True
@@ -288,7 +296,11 @@ class Journal:
         """Persist a fully successful operation."""
 
         with self._lock:
-            if call.replayed is not None or call.generation != self._generation:
+            if (
+                call.replayed is not None
+                or call.generation != self._generation
+                or call.sequence in self._sensitive_sequences
+            ):
                 return
             record = _Record(
                 sequence=call.sequence,
@@ -299,6 +311,30 @@ class Journal:
             )
             self._store.append(record)
             self._completed[record.sequence] = record
+
+    def invalidate(self, call: _JournalCall) -> _JournalCall:
+        """Discard a replayed record when its external state is unavailable."""
+
+        with self._lock:
+            if call.replayed is None or call.generation != self._generation:
+                return call
+            self._matched = [record for record in self._matched if record.sequence != call.sequence]
+            self._diverge()
+            return _JournalCall(
+                sequence=call.sequence,
+                parent=call.parent,
+                kind=call.kind,
+                fingerprint=call.fingerprint,
+                generation=self._generation,
+                replay_ended=self._mark_replay_ended(),
+            )
+
+    def mark_sensitive(self) -> None:
+        """Prevent all enclosing agent results from being persisted."""
+
+        with self._lock:
+            stack = getattr(self._local, "parents", ())
+            self._sensitive_sequences.update(stack)
 
     def operation(self, call: _JournalCall) -> _Operation:
         """Track nested journal operations below a parent call."""
@@ -339,6 +375,7 @@ class Journal:
         self._matched = list(sorted(retained.values(), key=lambda record: record.sequence))
         self._completed = dict(retained)
         self._skipped_parents = set()
+        self._sensitive_sequences = set()
         self._generation += 1
 
     def _mark_replay_ended(self) -> bool:

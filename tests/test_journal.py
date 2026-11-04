@@ -12,7 +12,9 @@ import pytest
 from pilota import (
     Answer,
     AskHuman,
+    Editor,
     FinalResult,
+    InMemoryWorkspace,
     Journal,
     Question,
     ScriptedModel,
@@ -21,7 +23,7 @@ from pilota import (
     agent,
     run_agent,
 )
-from pilota.errors import JournalError, ProviderError
+from pilota.errors import ExecutionCancelled, JournalError, ProviderError
 from pilota.models import ModelRequest
 
 
@@ -217,6 +219,48 @@ def test_direct_terminal_human_answer_is_replayed(tmp_path: Path) -> None:
     assert output.getvalue() == ""
 
 
+def test_sensitive_human_answer_prevents_agent_replay(tmp_path: Path) -> None:
+    journal_path = tmp_path / "run.jsonl"
+    first_human = FakeHuman(Answer(text="secret"))
+    first_model = ScriptedModel(
+        [
+            ToolCall("ask", "ask_human", {"text": "Approve?", "sensitive": True}),
+            FinalResult("approved: secret"),
+        ]
+    )
+
+    with Journal(journal_path):
+        assert (
+            agent(
+                "Deploy",
+                model=first_model,
+                returns=str,
+                tools=[AskHuman(first_human)],
+            )
+            == "approved: secret"
+        )
+    assert not journal_path.exists()
+
+    second_human = FakeHuman(Answer(text="different"))
+    second_model = ScriptedModel(
+        [
+            ToolCall("ask", "ask_human", {"text": "Approve?", "sensitive": True}),
+            FinalResult("approved: different"),
+        ]
+    )
+    with Journal(journal_path):
+        assert (
+            agent(
+                "Deploy",
+                model=second_model,
+                returns=str,
+                tools=[AskHuman(second_human)],
+            )
+            == "approved: different"
+        )
+    assert len(second_human.questions) == 1
+
+
 def test_sensitive_human_answer_is_not_recorded(tmp_path: Path) -> None:
     journal_path = tmp_path / "run.jsonl"
     question = Question("API key?", sensitive=True)
@@ -238,6 +282,109 @@ def test_only_one_journal_can_be_active(tmp_path: Path) -> None:
         Journal(tmp_path / "second.jsonl"),
     ):
         pass
+
+
+def test_cancelled_replay_preserves_live_cancellation_semantics(tmp_path: Path) -> None:
+    journal_path = tmp_path / "run.jsonl"
+    with Journal(journal_path):
+        assert agent("A", model=ScriptedModel([FinalResult("done")]), returns=str) == "done"
+
+    cancel_event = Event()
+    cancel_event.set()
+    with Journal(journal_path), pytest.raises(ExecutionCancelled) as raised:
+        run_agent(
+            "A",
+            model=ScriptedModel([]),
+            returns=str,
+            cancel_event=cancel_event,
+        )
+    assert raised.value.trace is not None
+    assert raised.value.trace.events[-1].kind == "execution.cancelled"
+
+
+def test_workspace_state_mismatch_runs_live_instead_of_replaying(tmp_path: Path) -> None:
+    journal_path = tmp_path / "run.jsonl"
+    with Journal(journal_path):
+        run_agent(
+            "Write a plan",
+            model=ScriptedModel(
+                [
+                    ToolCall(
+                        "write",
+                        "editor",
+                        {"operation": "write", "path": "plan.txt", "content": "plan"},
+                    ),
+                    FinalResult("written"),
+                ]
+            ),
+            returns=str,
+            tools=[Editor()],
+            workspace=InMemoryWorkspace(),
+        )
+
+    workspace = InMemoryWorkspace()
+    live_model = ScriptedModel(
+        [
+            ToolCall(
+                "write",
+                "editor",
+                {"operation": "write", "path": "plan.txt", "content": "plan"},
+            ),
+            FinalResult("written again"),
+        ]
+    )
+    with Journal(journal_path):
+        assert (
+            run_agent(
+                "Write a plan",
+                model=live_model,
+                returns=str,
+                tools=[Editor()],
+                workspace=workspace,
+            ).value
+            == "written again"
+        )
+    assert workspace.read_text("plan.txt") == "plan"
+    assert len(live_model.requests) == 2
+
+
+def test_workspace_policy_change_prevents_replay(tmp_path: Path) -> None:
+    journal_path = tmp_path / "run.jsonl"
+    with Journal(journal_path):
+        run_agent(
+            "Read the plan",
+            model=ScriptedModel([FinalResult("done")]),
+            returns=str,
+            workspace=InMemoryWorkspace(allow={"read"}),
+        )
+
+    live_model = ScriptedModel([FinalResult("live")])
+    with Journal(journal_path):
+        assert (
+            run_agent(
+                "Read the plan",
+                model=live_model,
+                returns=str,
+                workspace=InMemoryWorkspace(allow={"list", "read"}),
+            ).value
+            == "live"
+        )
+    assert len(live_model.requests) == 1
+
+
+def test_newline_less_valid_record_is_delimited_before_append(tmp_path: Path) -> None:
+    journal_path = tmp_path / "run.jsonl"
+    with Journal(journal_path):
+        assert agent("A", model=ScriptedModel([FinalResult("a")]), returns=str) == "a"
+    journal_path.write_bytes(journal_path.read_bytes().rstrip(b"\n"))
+
+    with Journal(journal_path):
+        assert agent("A", model=ScriptedModel([]), returns=str) == "a"
+        assert agent("B", model=ScriptedModel([FinalResult("b")]), returns=str) == "b"
+
+    with Journal(journal_path):
+        assert agent("A", model=ScriptedModel([]), returns=str) == "a"
+        assert agent("B", model=ScriptedModel([]), returns=str) == "b"
 
 
 def test_incomplete_last_line_is_ignored(tmp_path: Path) -> None:

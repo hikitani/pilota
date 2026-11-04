@@ -50,7 +50,8 @@ direction = human.ask(
 )
 ```
 
-Mark secrets and other sensitive answers so they are always asked live and never written:
+Mark secrets and other sensitive answers so they are always asked live and never written. An agent
+that asks a sensitive question is also not persisted as a replayable result:
 
 ```python
 answer = human.ask(Question("API key?", sensitive=True))
@@ -71,10 +72,12 @@ One journal may be active in a process at a time. Calls from worker threads shar
 receive ordered sequence numbers under a lock. If thread scheduling changes the call order on a
 later run, Pilota stops using the mismatched path rather than returning a result from another call.
 
-Successful agent replay also skips its tools, so completed side effects are not repeated. A process
-can still die after an external side effect but before the agent completes; because that agent has
-no successful record, it runs again. Tools that require exactly-once delivery still need their own
-idempotency keys or transactional boundary.
+Successful agent replay also skips its tools, so completed side effects are not repeated. For a
+workspace-backed call, Pilota records a digest of the post-call workspace state and only replays when
+the current workspace and policy still match; otherwise it archives that record and runs live. A
+process can still die after an external side effect but before the agent completes; because that
+agent has no successful record, it runs again. Tools that require exactly-once delivery still need
+their own idempotency keys or transactional boundary.
 
 ## Start over
 

@@ -22,6 +22,12 @@ class InMemoryWorkspace:
         }
         self._policy = WorkspacePolicy(allow=allow, deny_globs=deny_globs)
 
+    def journal_config(self) -> dict[str, object]:
+        return {
+            "allow": sorted(self._policy.allow),
+            "deny_globs": list(self._policy.deny_globs),
+        }
+
     def list_files(self, path: str = ".") -> list[str]:
         self._policy.authorize("list", path)
         prefix = normalize_relative_path(path)
