@@ -4,6 +4,7 @@ from pilota.api import agent
 from pilota.execution import run_agent
 from pilota.human import Answer, Human, NoHuman, Question, TerminalHuman
 from pilota.instructions import Instruction, InstructionFile
+from pilota.journal import Journal
 from pilota.models import (
     RESULT_TOOL_NAME,
     Artifact,
@@ -40,6 +41,7 @@ __all__ = [
     "InMemoryWorkspace",
     "Instruction",
     "InstructionFile",
+    "Journal",
     "Limits",
     "Model",
     "NoHuman",

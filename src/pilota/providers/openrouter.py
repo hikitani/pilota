@@ -60,6 +60,15 @@ class OpenRouterModel:
         self._client = client or httpx.Client(timeout=timeout)
         self._owns_client = client is None
 
+    def journal_config(self) -> Mapping[str, Any]:
+        """Return non-secret settings that affect journal replay matching."""
+
+        return {
+            "model": self.model,
+            "max_tokens": self.max_tokens,
+            "base_url": self._base_url,
+        }
+
     def respond(self, request: ModelRequest) -> ModelAction:
         try:
             response = self._client.post(

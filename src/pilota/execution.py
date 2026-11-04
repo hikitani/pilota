@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from threading import Event
 from time import monotonic
 from typing import Any, Never, TypeVar
@@ -19,6 +20,7 @@ from pilota.errors import (
     ToolError,
 )
 from pilota.instructions import InstructionInput, render_instructions
+from pilota.journal import active_journal, fingerprint
 from pilota.models import (
     RESULT_TOOL_NAME,
     Artifact,
@@ -55,7 +57,116 @@ def run_agent(
     cancel_event: Event | None = None,
     progress: ProgressCallback | None = None,
 ) -> Execution[T]:
+    journal = active_journal()
+    if journal is None:
+        return _run_agent_live(
+            task,
+            model=model,
+            returns=returns,
+            context=context,
+            resources=resources,
+            instructions=instructions,
+            tools=tools,
+            workspace=workspace,
+            limits=limits,
+            cancel_event=cancel_event,
+            progress=progress,
+        )
+
+    codec = ResultCodec(returns)
+    selected_tools = (*tuple(tools or ()), *resource_tools(resources or {}))
     execution_id = str(uuid4())
+    selected_instructions = render_instructions(
+        tuple(instructions or ()),
+        execution_id=execution_id,
+    )
+    call_fingerprint = fingerprint(
+        {
+            "task": task,
+            "context": context or {},
+            "instructions": selected_instructions,
+            "tools": [
+                {
+                    "type": _qualified_name(tool),
+                    "name": tool.spec.name,
+                    "description": tool.spec.description,
+                    "input_schema": tool.spec.input_schema,
+                }
+                for tool in selected_tools
+            ],
+            "returns": codec.schema(),
+            "model": _model_identity(model),
+        }
+    )
+    call = journal.begin("agent", call_fingerprint)
+    if call.replayed is not None:
+        recorder = TraceRecorder(progress)
+        recorder.record("execution.started", {"task": task})
+        recorder.record("journal.replayed", {"kind": "agent"})
+        value = codec.decode(call.replayed.get("value"), execution_id=execution_id)
+        artifacts = _decode_artifacts(call.replayed.get("artifacts"), execution_id)
+        recorder.record("result.produced")
+        _record_artifacts(recorder, artifacts)
+        recorder.record("execution.completed")
+        return Execution(
+            id=execution_id,
+            value=value,
+            artifacts=artifacts,
+            trace=recorder.snapshot(),
+            usage=Usage(),
+            status=ExecutionStatus.SUCCEEDED,
+        )
+
+    with journal.operation(call):
+        execution = _run_agent_live(
+            task,
+            model=model,
+            returns=returns,
+            context=context,
+            resources=resources,
+            instructions=instructions,
+            tools=tools,
+            workspace=workspace,
+            limits=limits,
+            cancel_event=cancel_event,
+            progress=progress,
+            journal_replay_ended=call.replay_ended,
+            execution_id=execution_id,
+            rendered_instructions=selected_instructions,
+            selected_tools=selected_tools,
+        )
+    journal.complete(
+        call,
+        {
+            "value": codec.encode(execution.value),
+            "artifacts": [
+                {"path": str(artifact.path), "operation": artifact.operation}
+                for artifact in execution.artifacts
+            ],
+        },
+    )
+    return execution
+
+
+def _run_agent_live(
+    task: str,
+    *,
+    model: Model,
+    returns: type[T],
+    context: Mapping[str, Any] | None = None,
+    resources: Mapping[str, Resource] | None = None,
+    instructions: Sequence[InstructionInput] | None = None,
+    tools: Sequence[Tool] | None = None,
+    workspace: WorkspaceHandle | None = None,
+    limits: Limits | None = None,
+    cancel_event: Event | None = None,
+    progress: ProgressCallback | None = None,
+    journal_replay_ended: bool = False,
+    execution_id: str | None = None,
+    rendered_instructions: Sequence[str] | None = None,
+    selected_tools: Sequence[Tool] | None = None,
+) -> Execution[T]:
+    execution_id = execution_id or str(uuid4())
     recorder = TraceRecorder(progress)
     selected_limits = limits or Limits()
     deadline = (
@@ -64,12 +175,20 @@ def run_agent(
         else None
     )
     codec = ResultCodec(returns)
-    rendered_instructions = render_instructions(
-        tuple(instructions or ()),
-        execution_id=execution_id,
+    prepared_instructions = (
+        tuple(rendered_instructions)
+        if rendered_instructions is not None
+        else render_instructions(
+            tuple(instructions or ()),
+            execution_id=execution_id,
+        )
     )
-    selected_tools = (*tuple(tools or ()), *resource_tools(resources or {}))
-    tool_registry = _build_tool_registry(selected_tools)
+    prepared_tools = (
+        tuple(selected_tools)
+        if selected_tools is not None
+        else (*tuple(tools or ()), *resource_tools(resources or {}))
+    )
+    tool_registry = _build_tool_registry(prepared_tools)
     tool_call_history: list[ToolCall] = []
     observations: list[Observation] = []
     model_calls = 0
@@ -78,6 +197,8 @@ def run_agent(
     workspace_snapshot = workspace.snapshot() if workspace is not None else {}
 
     recorder.record("execution.started", {"task": task})
+    if journal_replay_ended:
+        recorder.record("journal.replay_completed", {"reason": "journal_exhausted_or_changed"})
 
     def reject_result(attempt: FinalResult, error: ResultContractError) -> None:
         nonlocal result_rejections
@@ -113,8 +234,8 @@ def run_agent(
             execution_id=execution_id,
             task=task,
             context=context or {},
-            instructions=rendered_instructions,
-            tools=tuple(tool.spec for tool in selected_tools),
+            instructions=prepared_instructions,
+            tools=tuple(tool.spec for tool in prepared_tools),
             result_schema=codec.schema(),
             tool_calls=tuple(tool_call_history),
             observations=tuple(observations),
@@ -443,3 +564,50 @@ def _record_artifacts(recorder: TraceRecorder, artifacts: Sequence[Artifact]) ->
             f"artifact.{artifact.operation}",
             {"path": str(artifact.path)},
         )
+
+
+def _model_identity(model: Model) -> Mapping[str, Any]:
+    custom = getattr(model, "journal_config", None)
+    if callable(custom):
+        return {
+            "type": _qualified_name(model),
+            "config": custom(),
+        }
+    public = {
+        name: value
+        for name, value in vars(model).items()
+        if not name.startswith("_") and name != "requests"
+    }
+    return {
+        "type": _qualified_name(model),
+        "config": public,
+    }
+
+
+def _qualified_name(value: object) -> str:
+    value_type = type(value)
+    return f"{value_type.__module__}.{value_type.__qualname__}"
+
+
+def _decode_artifacts(value: object, execution_id: str) -> tuple[Artifact, ...]:
+    if not isinstance(value, list):
+        raise ConfigurationError(
+            "Journal agent artifacts must be a list",
+            execution_id=execution_id,
+        )
+    artifacts: list[Artifact] = []
+    for item in value:
+        if not isinstance(item, Mapping):
+            raise ConfigurationError(
+                "Journal artifact must be an object",
+                execution_id=execution_id,
+            )
+        path = item.get("path")
+        operation = item.get("operation")
+        if not isinstance(path, str) or operation not in {"created", "modified", "deleted"}:
+            raise ConfigurationError(
+                "Journal artifact has invalid path or operation",
+                execution_id=execution_id,
+            )
+        artifacts.append(Artifact(path=Path(path), operation=operation))
+    return tuple(artifacts)

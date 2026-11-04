@@ -59,6 +59,7 @@ for step in plan.steps:
 - **Explicit authority**: expose selected tools, read-only resources, and a policy-controlled workspace.
 - **Bounded execution**: limit model calls, tool calls, result retries, and wall time.
 - **Inspectable outcomes**: keep the typed result, usage, trace, and changed-file artifacts.
+- **Durable workflows**: replay completed calls from a local JSONL journal after interruption.
 - **Deterministic tests**: drive the full runtime with `ScriptedModel`, without network calls.
 
 ## Installation

@@ -50,6 +50,11 @@ class TerminalProgress:
             self._set_label(f"Finished {event.data['tool']}")
         elif event.kind == "human.question":
             self._end_line("?", "Waiting for input")
+        elif event.kind == "journal.replayed":
+            kind = event.data.get("kind", "step")
+            self._set_label(f"Replayed {kind} from journal")
+        elif event.kind == "journal.replay_completed":
+            self._set_label("Journal replay complete; continuing live")
         elif event.kind in {"tool.failed", "tool.denied", "result.rejected"}:
             self._set_label(self._warning_label(event), "!")
         elif event.kind == "execution.completed":

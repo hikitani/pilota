@@ -91,3 +91,16 @@ def test_terminal_progress_stops_spinner_before_human_input(
 def test_terminal_progress_rejects_invalid_refresh_interval() -> None:
     with pytest.raises(ValueError, match="refresh_interval"):
         TerminalProgress(refresh_interval=0)
+
+
+def test_terminal_progress_shows_journal_replay() -> None:
+    stream = StringIO()
+    progress = TerminalProgress(stream)
+
+    progress(event("execution.started"))
+    progress(event("journal.replayed", {"kind": "agent"}))
+    progress(event("journal.replay_completed"))
+
+    output = stream.getvalue()
+    assert "[pilota] Replayed agent from journal" in output
+    assert "[pilota] Journal replay complete; continuing live" in output

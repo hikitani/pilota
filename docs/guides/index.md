@@ -5,6 +5,7 @@ The guides move from composing one typed call to operating larger agent programs
 | Guide | Main question |
 | --- | --- |
 | [Compose agents with Python](python-orchestration.md) | How do several agent calls become a workflow? |
+| [Resume workflows with a journal](journaling.md) | How can a failed workflow reuse completed work? |
 | [Repository review workflow](release-review-workflow.md) | What does a complete typed workflow look like? |
 | [UI design workflow](ui-design-workflow.md) | How do agents and a person shape a visual system together? |
 | [Define typed results](typed-results.md) | How does model output become trusted Python data? |

@@ -29,3 +29,6 @@ class ResultCodec(Generic[T]):
                 f"Final result does not satisfy the requested type: {error}",
                 execution_id=execution_id,
             ) from error
+
+    def encode(self, value: T) -> Any:
+        return self._adapter.dump_python(value, mode="json")
