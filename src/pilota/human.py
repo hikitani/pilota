@@ -3,9 +3,16 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol, TextIO
+from threading import local
+from typing import Any, Protocol, TextIO
+
+from pilota.errors import JournalError, ToolError
+from pilota.journal import active_journal, fingerprint
+
+_journal_state = local()
 
 
 @dataclass(frozen=True)
@@ -17,6 +24,7 @@ class Question:
     multiple: bool = False
     why: str | None = None
     attachments: tuple[Path, ...] = ()
+    sensitive: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.text, str) or not self.text.strip():
@@ -52,6 +60,9 @@ class TerminalHuman:
         self._output = output
 
     def ask(self, question: Question) -> Answer:
+        return _journal_answer(question, lambda: self._ask_live(question))
+
+    def _ask_live(self, question: Question) -> Answer:
         input_stream = self._input if self._input is not None else sys.stdin
         output_stream = self._output if self._output is not None else sys.stdout
 
@@ -113,5 +124,88 @@ class NoHuman:
     """A human implementation that always delegates decisions to the agent."""
 
     def ask(self, question: Question) -> Answer:
-        del question
-        return Answer(delegated=True)
+        return _journal_answer(question, lambda: Answer(delegated=True))
+
+
+def ask_human(
+    human: Human,
+    question: Question,
+    *,
+    record: Callable[[str, Mapping[str, Any]], None] | None = None,
+) -> Answer:
+    """Ask any Human while honoring the active workflow journal."""
+
+    def ask_live() -> Answer:
+        _journal_state.bypass = True
+        try:
+            return human.ask(question)
+        finally:
+            _journal_state.bypass = False
+
+    return _journal_answer(question, ask_live, record=record)
+
+
+def _journal_answer(
+    question: Question,
+    ask_live: Callable[[], Answer],
+    *,
+    record: Callable[[str, Mapping[str, Any]], None] | None = None,
+) -> Answer:
+    journal = active_journal()
+    if journal is None or getattr(_journal_state, "bypass", False):
+        return _checked_answer(ask_live())
+    if question.sensitive:
+        journal.mark_sensitive()
+        return _checked_answer(ask_live())
+
+    question_fingerprint = fingerprint(
+        {
+            "text": question.text,
+            "options": question.options,
+            "multiple": question.multiple,
+            "why": question.why,
+            "attachments": [str(path) for path in question.attachments],
+            "sensitive": question.sensitive,
+        }
+    )
+    call = journal.begin("human", question_fingerprint)
+    if call.replayed is not None:
+        answer = _decode_answer(call.replayed)
+        if record is not None:
+            record("journal.replayed", {"kind": "human"})
+        return answer
+    if call.replay_ended and record is not None:
+        record("journal.replay_completed", {"reason": "journal_exhausted_or_changed"})
+
+    with journal.operation(call):
+        answer = _checked_answer(ask_live())
+    journal.complete(call, _encode_answer(answer))
+    return answer
+
+
+def _checked_answer(value: object) -> Answer:
+    if not isinstance(value, Answer):
+        raise ToolError("Human.ask must return an Answer")
+    return value
+
+
+def _encode_answer(answer: Answer) -> Mapping[str, Any]:
+    return {
+        "choices": list(answer.choices),
+        "text": answer.text,
+        "delegated": answer.delegated,
+    }
+
+
+def _decode_answer(value: Mapping[str, Any]) -> Answer:
+    choices = value.get("choices")
+    text = value.get("text")
+    delegated = value.get("delegated")
+    if (
+        not isinstance(choices, list)
+        or not all(isinstance(choice, str) for choice in choices)
+        or (text is not None and not isinstance(text, str))
+        or not isinstance(delegated, bool)
+    ):
+        raise JournalError("Journal human answer is invalid")
+    return Answer(choices=tuple(choices), text=text, delegated=delegated)

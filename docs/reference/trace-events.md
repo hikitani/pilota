@@ -14,6 +14,8 @@ Traces are ordered runtime facts. Event data is intentionally small and provider
 | `tool.denied` | `tool`, optional `call_id`, `reason` or `error` | Tool was unavailable or unauthorized |
 | `human.question` | `text`, `options` | A tool presented a question to a human |
 | `human.answer` | `choices`, `text`, `delegated`, optional `reason` | A human answered, delegated, or the question budget was exhausted |
+| `journal.replayed` | `kind` | A successful agent call or human answer was restored |
+| `journal.replay_completed` | `reason` | Replay ended and live execution resumed |
 | `result.rejected` | `error` | Submitted result failed the contract |
 | `result.produced` | none | A final result passed validation |
 | `artifact.created` | `path` | A created workspace file was recorded |

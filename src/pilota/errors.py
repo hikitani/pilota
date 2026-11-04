@@ -30,6 +30,10 @@ class ConfigurationError(AgentError):
     """The requested execution cannot be configured safely."""
 
 
+class JournalError(AgentError):
+    """A durable workflow journal could not be used safely."""
+
+
 class ProviderError(AgentError):
     """A model provider failed."""
 

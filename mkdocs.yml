@@ -106,6 +106,7 @@ nav:
   - Guides:
       - Overview: guides/index.md
       - Compose agents with Python: guides/python-orchestration.md
+      - Resume workflows with a journal: guides/journaling.md
       - Repository review workflow: guides/release-review-workflow.md
       - UI design workflow: guides/ui-design-workflow.md
       - Define typed results: guides/typed-results.md

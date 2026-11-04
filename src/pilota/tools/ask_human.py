@@ -8,7 +8,7 @@ from threading import Lock
 from typing import Any
 
 from pilota.errors import PermissionDenied, ToolError
-from pilota.human import Answer, Human, Question
+from pilota.human import Answer, Human, Question, ask_human
 from pilota.models import ToolSpec
 from pilota.tools.base import ProcessWorkspaceHandle, ToolContext
 
@@ -31,7 +31,8 @@ class AskHuman:
             description=(
                 "Ask the human only when information is genuinely missing. Use plain, "
                 "non-expert language and prefer offering options. The human may delegate; "
-                "if they do, decide yourself and state your assumption in your result."
+                "if they do, decide yourself and state your assumption in your result. "
+                "Set sensitive=true for secrets or answers that must not be journaled."
             ),
             input_schema={
                 "type": "object",
@@ -43,6 +44,7 @@ class AskHuman:
                     },
                     "multiple": {"type": "boolean"},
                     "why": {"type": "string"},
+                    "sensitive": {"type": "boolean"},
                     "attachments": {
                         "type": "array",
                         "items": {"type": "string"},
@@ -78,7 +80,7 @@ class AskHuman:
             "human.question",
             {"text": question.text, "options": list(question.options)},
         )
-        answer = self._human.ask(question)
+        answer = ask_human(self._human, question, record=context.record)
         if not isinstance(answer, Answer):
             raise ToolError("Human.ask must return an Answer")
         answer_data = {
@@ -96,7 +98,7 @@ class AskHuman:
     ) -> Question:
         if not isinstance(arguments, Mapping):
             raise ToolError("AskHuman arguments must be an object")
-        allowed = {"text", "options", "multiple", "why", "attachments"}
+        allowed = {"text", "options", "multiple", "why", "attachments", "sensitive"}
         extra = arguments.keys() - allowed
         if extra:
             raise ToolError(f"Unexpected AskHuman argument: {next(iter(extra))!r}")
@@ -117,6 +119,10 @@ class AskHuman:
         if why is not None and not isinstance(why, str):
             raise ToolError("AskHuman why must be a string")
 
+        sensitive = arguments.get("sensitive", False)
+        if not isinstance(sensitive, bool):
+            raise ToolError("AskHuman sensitive must be a boolean")
+
         raw_attachments = arguments.get("attachments", [])
         if not isinstance(raw_attachments, list) or not all(
             isinstance(item, str) for item in raw_attachments
@@ -131,6 +137,7 @@ class AskHuman:
                 multiple=multiple,
                 why=why,
                 attachments=attachments,
+                sensitive=sensitive,
             )
         except ValueError as error:
             raise ToolError(str(error), execution_id=context.execution_id) from error

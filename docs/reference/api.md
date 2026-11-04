@@ -39,6 +39,10 @@ part.
 
 ::: pilota.progress.TerminalProgress
 
+## Workflow journal
+
+::: pilota.journal.Journal
+
 ## Providers
 
 ::: pilota.providers.Model

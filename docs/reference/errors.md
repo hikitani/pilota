@@ -5,6 +5,7 @@ All Pilota runtime errors inherit from `AgentError`.
 | Error | Meaning | Typical response |
 | --- | --- | --- |
 | `ConfigurationError` | The requested execution cannot be configured safely | Fix caller input |
+| `JournalError` | A journal could not be loaded or updated safely | Inspect the file or active scope |
 | `ProviderError` | The provider request or response failed | Retry, fail over, or surface |
 | `ModelLimitError` | A model-call or tool-call limit was exhausted | Increase budget or narrow task |
 | `ToolError` | A tool could not complete an operation | Inspect tool input or implementation |
@@ -42,6 +43,8 @@ The exception can still escape when:
 ::: pilota.errors.AgentError
 
 ::: pilota.errors.ConfigurationError
+
+::: pilota.errors.JournalError
 
 ::: pilota.errors.ProviderError
 
