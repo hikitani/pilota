@@ -100,12 +100,12 @@ def run_agent(
             "model": _model_identity(model),
         }
     )
-    _raise_if_replay_cancelled(task, cancel_event, workspace, progress)
     call = journal.begin("agent", call_fingerprint)
     if call.replayed is not None and not _workspace_matches(
-        workspace, call.replayed.get("workspace")
+        workspace, call.replayed.get("workspace"), journal.storage_path
     ):
         call = journal.invalidate(call)
+    _raise_if_replay_cancelled(task, cancel_event, workspace, progress)
     if call.replayed is not None:
         recorder = TraceRecorder(progress)
         recorder.record("execution.started", {"task": task})
@@ -150,7 +150,7 @@ def run_agent(
                 {"path": str(artifact.path), "operation": artifact.operation}
                 for artifact in execution.artifacts
             ],
-            "workspace": _workspace_digest(workspace),
+            "workspace": _workspace_digest(workspace, journal.storage_path),
         },
     )
     return execution
@@ -625,30 +625,46 @@ def _workspace_identity(workspace: WorkspaceHandle | None) -> Mapping[str, Any] 
     }
 
 
-def _workspace_digest(workspace: WorkspaceHandle | None) -> Mapping[str, str] | None:
+def _workspace_digest(
+    workspace: WorkspaceHandle | None,
+    journal_path: Path,
+) -> Mapping[str, str] | None:
     if workspace is None:
         return None
     try:
         snapshot = workspace.snapshot()
     except Exception:
         return None
+    ignored_path = _workspace_relative_path(workspace, journal_path)
     return {
         str(path): sha256(str(value).encode("utf-8")).hexdigest()
         for path, value in sorted(snapshot.items())
+        if str(path) != ignored_path
     }
 
 
 def _workspace_matches(
     workspace: WorkspaceHandle | None,
     expected: object,
+    journal_path: Path,
 ) -> bool:
     if workspace is None:
         return True
     if not isinstance(expected, Mapping):
         return False
-    return _workspace_digest(workspace) == {
+    return _workspace_digest(workspace, journal_path) == {
         str(path): value for path, value in expected.items() if isinstance(path, str)
     }
+
+
+def _workspace_relative_path(workspace: WorkspaceHandle, journal_path: Path) -> str | None:
+    root = getattr(workspace, "root", None)
+    if not isinstance(root, Path):
+        return None
+    try:
+        return str(journal_path.resolve().relative_to(root.resolve()))
+    except ValueError:
+        return None
 
 
 def _qualified_name(value: object) -> str:

@@ -12,6 +12,7 @@ import pytest
 from pilota import (
     Answer,
     AskHuman,
+    DirectoryWorkspace,
     Editor,
     FinalResult,
     InMemoryWorkspace,
@@ -284,6 +285,26 @@ def test_only_one_journal_can_be_active(tmp_path: Path) -> None:
         pass
 
 
+def test_journal_inside_directory_workspace_replays(tmp_path: Path) -> None:
+    journal_path = tmp_path / "run.jsonl"
+    workspace = DirectoryWorkspace(tmp_path, allow={"read"})
+    with Journal(journal_path):
+        assert (
+            agent(
+                "A",
+                model=ScriptedModel([FinalResult("done")]),
+                returns=str,
+                workspace=workspace,
+            )
+            == "done"
+        )
+
+    replay_model = ScriptedModel([])
+    with Journal(journal_path):
+        assert agent("A", model=replay_model, returns=str, workspace=workspace) == "done"
+    assert replay_model.requests == []
+
+
 def test_cancelled_replay_preserves_live_cancellation_semantics(tmp_path: Path) -> None:
     journal_path = tmp_path / "run.jsonl"
     with Journal(journal_path):
@@ -300,6 +321,24 @@ def test_cancelled_replay_preserves_live_cancellation_semantics(tmp_path: Path) 
         )
     assert raised.value.trace is not None
     assert raised.value.trace.events[-1].kind == "execution.cancelled"
+
+    continuation_path = tmp_path / "continuation.jsonl"
+    with Journal(continuation_path):
+        assert agent("A", model=ScriptedModel([FinalResult("a")]), returns=str) == "a"
+        assert agent("B", model=ScriptedModel([FinalResult("b")]), returns=str) == "b"
+
+    cancel_event = Event()
+    cancel_event.set()
+    with Journal(continuation_path):
+        with pytest.raises(ExecutionCancelled):
+            run_agent(
+                "A",
+                model=ScriptedModel([]),
+                returns=str,
+                cancel_event=cancel_event,
+            )
+        cancel_event.clear()
+        assert agent("B", model=ScriptedModel([]), returns=str) == "b"
 
 
 def test_workspace_state_mismatch_runs_live_instead_of_replaying(tmp_path: Path) -> None:
