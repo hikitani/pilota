@@ -212,6 +212,10 @@ class Journal:
         self._reported_replay_end = False
         self._entered = False
 
+    @property
+    def storage_path(self) -> Path:
+        return self._store.path if isinstance(self._store, _JsonlStore) else self.path
+
     def __enter__(self) -> Journal:
         global _active_journal
         with _active_lock:
