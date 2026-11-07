@@ -38,9 +38,17 @@ design principles, and usability heuristics. The revision loop is bounded by ord
 
 ## See live progress
 
-The executable example passes one `TerminalProgress` instance to every agent call. In a terminal it
-keeps a compact colored spinner on one line with the current model or tool call and elapsed time.
-Redirected output and CI logs receive plain `[pilota]` lines instead of terminal control codes.
+The executable example passes one `TerminalProgress` instance to every agent call. Each call is
+numbered as a step and labelled with the first line of its task. In a terminal the renderer keeps a
+compact colored spinner on one line, fitted to the terminal width, with the current model or tool call
+and the step's elapsed time. When a step ends, the line stays on screen with its outcome:
+
+```text
+✓ #1 Analyze this product before any… · Done · 2 model calls, 1 tool call  14.2s
+✗ #5 Render the reference screen in t… · Model calls limit exhausted  1m 12s
+```
+
+Redirected output and CI logs receive plain `[pilota #N]` lines instead of terminal control codes.
 
 The renderer consumes the same `TraceEvent` values retained on `Execution.trace`, so applications
 can supply their own callback without adopting a second event system:

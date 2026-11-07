@@ -98,9 +98,11 @@ events = []
 value = agent("Analyze the change", model=model, returns=Analysis, progress=events.append)
 ```
 
-`TerminalProgress()` is a ready-made callback for interactive terminals and plain CI logs. A model
-request is still one blocking provider call; the renderer shows activity and elapsed time while it
-waits, but token-level updates require provider streaming support.
+`TerminalProgress()` is a ready-made callback for interactive terminals and plain CI logs. Share one
+instance across a workflow: each execution is shown as a numbered step with its task title and ends
+with a usage summary, a failure reason, or the cancellation boundary. A model request is still one
+blocking provider call; the renderer shows activity and elapsed time while it waits, but token-level
+updates require provider streaming support.
 
 See [Trace events](../reference/trace-events.md) for the emitted event kinds and
 [Errors](../reference/errors.md) for the full hierarchy.
